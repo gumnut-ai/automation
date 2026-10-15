@@ -15,9 +15,9 @@ See each `action.yml` for exact input and output names.
 
 ## Use in a consumer
 
-Copy [the consumer example](examples/consumer/) into a repository. Replace **every
-40-zero SHA** in its workflows with the same reviewed full commit SHA from this
-repository; the placeholder deliberately cannot run. Keep the filenames
+Copy [the consumer example](examples/consumer/) into a repository. Select the same reviewed full commit SHA from this repository for every shared
+action reference in its workflows. Examples pin a published source revision;
+verify the selected revision before deploying. Keep the filenames
 `claude-review.yml`, `pr-approval-request.yml` and `pr-approval-coordinator.yml`:
 request routing verifies those names and the native admission receipt step.
 Customize `.github/claude-review/INSTRUCTIONS.md` on the trusted default branch.
