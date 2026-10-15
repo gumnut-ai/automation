@@ -1,0 +1,15 @@
+name: Dispatch trusted Claude review
+description: Validate PR metadata and dispatch a default-branch reviewer without inference credentials.
+inputs:
+  enabled:
+    description: Explicit repository activation gate.
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        AUTOMATION_ROOT: ${{ github.action_path }}/../..
+        GH_TOKEN: ${{ github.token }}
+        CLAUDE_REVIEW_ENABLED: ${{ inputs.enabled }}
+      run: node "$AUTOMATION_ROOT/claude-review/dispatch.cjs" dispatch

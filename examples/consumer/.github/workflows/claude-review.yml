@@ -1,0 +1,130 @@
+name: Claude PR review
+
+# Safe metadata-only use: trusted default-branch checkout, no contributor execution.
+on: # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
+    types: [opened, synchronize, ready_for_review, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review
+        required: true
+        type: string
+      expected_head:
+        description: Expected PR head (automatic dispatch only)
+        required: false
+        type: string
+      origin_run_id:
+        description: Trusted PR event run (automatic dispatch only)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    if: >-
+      vars.CLAUDE_PR_REVIEW_ENABLED == 'true' &&
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.state == 'open' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      (github.event.sender.type == 'User' || github.event.sender.type == 'Bot')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: write # Dispatch only the trusted default-branch reviewer.
+    concurrency:
+      group: claude-review-dispatch-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # PR target SHA, never the contributor head.
+          persist-credentials: false
+      - name: Dispatch trusted reviewer
+        uses: gumnut-ai/automation/actions/claude-dispatch@8e0a7d2ac07ce01bf268b0a31dd2b20f6421a74d # REPLACE with a reviewed full commit SHA
+        with:
+          enabled: ${{ vars.CLAUDE_PR_REVIEW_ENABLED }}
+
+  review:
+    if: >-
+      vars.CLAUDE_PR_REVIEW_ENABLED == 'true' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event.sender.type == 'User' ||
+       (github.event.sender.type == 'Bot' && github.event.sender.login == 'github-actions[bot]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: claude-review-${{ inputs.pr_number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write # The summary backend posts only to the admitted PR.
+      actions: read # Verify an automatic dispatch's originating PR event and actor.
+      checks: write # Report review execution on the actual PR head.
+      id-token: write # Exchange for the official Claude GitHub App's token.
+    steps:
+      # The job admits default-branch dispatches only. Keep the exact trusted SHA.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Validate review request
+        id: prepare
+        uses: gumnut-ai/automation/actions/claude-prepare@8e0a7d2ac07ce01bf268b0a31dd2b20f6421a74d # REPLACE with a reviewed full commit SHA
+        with:
+          enabled: ${{ vars.CLAUDE_PR_REVIEW_ENABLED }}
+
+      - name: Require subscription authentication
+        if: steps.prepare.outputs.eligible == 'true'
+        env:
+          CLAUDE_REVIEW_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [[ -z "$CLAUDE_REVIEW_TOKEN" ]]; then
+            echo '::error::Configure CLAUDE_CODE_OAUTH_TOKEN before enabling Claude PR review.'
+            exit 1
+          fi
+
+      - name: Review independently with Claude
+        if: steps.prepare.outputs.eligible == 'true'
+        id: claude
+        # Bundles CLI 2.1.295 and SDK 0.3.295; Opus 5.5 requires CLI >= 2.1.280.
+        uses: anthropics/claude-code-action@2dca132ff0e0c4094ce6048b422c6915a071210b # v1.0.247
+        env:
+          CLAUDE_REVIEW_OWNER: ${{ steps.prepare.outputs.owner }}
+          CLAUDE_REVIEW_REPO: ${{ steps.prepare.outputs.repo }}
+          CLAUDE_REVIEW_PR_NUMBER: ${{ steps.prepare.outputs.pr_number }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The official SDK and App credentials stay on the runner. The custom
+          # executable runs the CLI in an isolated, credential-free container.
+          path_to_claude_code_executable: ${{ steps.prepare.outputs.launcher }}
+          # Only our validated metadata dispatcher may invoke as a bot.
+          allowed_bots: github-actions
+          # Override the app exchange's default contents:write permission.
+          additional_permissions: |
+            contents: read
+          include_fix_links: 'false'
+          # Post final inline comments directly; no extra classification inference.
+          classify_inline_comments: 'false'
+          prompt: ${{ steps.prepare.outputs.prompt }}
+          claude_args: ${{ steps.prepare.outputs.claude_args }}
+
+      - name: Report execution and sanitized usage
+        if: always()
+        uses: gumnut-ai/automation/actions/claude-report@8e0a7d2ac07ce01bf268b0a31dd2b20f6421a74d # REPLACE with a reviewed full commit SHA
+        with:
+          eligible: ${{ steps.prepare.outputs.eligible }}
+          check-id: ${{ steps.prepare.outputs.check_id }}
+          execution-file: ${{ steps.claude.outputs.execution_file }}
+          conclusion: ${{ steps.claude.outputs.conclusion }}
+          outcome: ${{ steps.claude.outcome }}
+          job-status: ${{ job.status }}

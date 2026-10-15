@@ -1,0 +1,59 @@
+name: Report Claude review execution
+description: Publish sanitized usage and finish the admitted review's execution check.
+inputs:
+  eligible:
+    description: Admission result from claude-prepare.
+    required: true
+  check-id:
+    description: Execution check from claude-prepare.
+  execution-file:
+    description: Official Action execution file output, read only for sanitized usage.
+  conclusion:
+    description: Official Action conclusion.
+  outcome:
+    description: Official Action step outcome.
+  job-status:
+    description: Caller's job status before reporting.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Report safe failure category
+      if: always() && inputs.outcome == 'failure'
+      shell: bash
+      env:
+        AUTOMATION_ROOT: ${{ github.action_path }}/../..
+      run: node "$AUTOMATION_ROOT/claude-review/failure-diagnostic.cjs"
+    - name: Report sanitized Claude usage
+      id: usage
+      if: always() && inputs.eligible == 'true'
+      shell: bash
+      env:
+        AUTOMATION_ROOT: ${{ github.action_path }}/../..
+        CLAUDE_EXECUTION_FILE: ${{ inputs.execution-file }}
+      run: node "$AUTOMATION_ROOT/claude-review/usage.cjs"
+    - name: Upload sanitized Claude usage
+      id: upload
+      if: always() && inputs.eligible == 'true'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: claude-review-usage
+        path: ${{ runner.temp }}/claude-review-usage.json
+        if-no-files-found: warn
+        retention-days: 30
+    - name: Require successful inference
+      if: always() && !cancelled() && inputs.eligible == 'true' && inputs.conclusion != 'success'
+      shell: bash
+      run: |
+        echo '::error::Claude review did not complete. This PR still needs review; inspect the action logs.'
+        exit 1
+    - name: Report review execution
+      if: always() && inputs.check-id != ''
+      shell: bash
+      env:
+        AUTOMATION_ROOT: ${{ github.action_path }}/../..
+        GH_TOKEN: ${{ github.token }}
+        CHECK_ID: ${{ inputs.check-id }}
+        REVIEW_JOB_STATUS: ${{ inputs.job-status == 'success' && steps.usage.outcome == 'success' && steps.upload.outcome == 'success' && 'success' || inputs.job-status == 'cancelled' && 'cancelled' || 'failure' }}
+        CLAUDE_CONCLUSION: ${{ inputs.conclusion }}
+      run: node "$AUTOMATION_ROOT/claude-review/dispatch.cjs" finish

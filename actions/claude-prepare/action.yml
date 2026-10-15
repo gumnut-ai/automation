@@ -1,0 +1,59 @@
+name: Prepare isolated Claude review
+description: Validate a trusted review request and prepare the credential-free execution runtime.
+inputs:
+  enabled:
+    description: Explicit repository activation gate.
+    default: 'false'
+outputs:
+  eligible:
+    description: Whether live PR and origin admission succeeded.
+    value: ${{ steps.request.outputs.eligible }}
+  owner:
+    description: Validated repository owner.
+    value: ${{ steps.request.outputs.owner }}
+  repo:
+    description: Validated repository name.
+    value: ${{ steps.request.outputs.repo }}
+  pr_number:
+    description: Validated PR number.
+    value: ${{ steps.request.outputs.pr_number }}
+  check_id:
+    description: Review execution check ID.
+    value: ${{ steps.request.outputs.check_id }}
+  launcher:
+    description: Shared executable path; the launcher archives the caller checkout.
+    value: ${{ steps.config.outputs.launcher }}
+  claude_args:
+    description: Pinned tool, model and backend configuration.
+    value: ${{ steps.config.outputs.claude_args }}
+  prompt:
+    description: Initial prompt pointing to caller trusted policy.
+    value: ${{ steps.config.outputs.prompt }}
+runs:
+  using: composite
+  steps:
+    - name: Validate review request
+      id: request
+      shell: bash
+      env:
+        AUTOMATION_ROOT: ${{ github.action_path }}/../..
+        GH_TOKEN: ${{ github.token }}
+        CLAUDE_REVIEW_ENABLED: ${{ inputs.enabled }}
+      run: node "$AUTOMATION_ROOT/claude-review/dispatch.cjs" prepare
+    - name: Prepare shared configuration
+      id: config
+      if: steps.request.outputs.eligible == 'true'
+      shell: bash
+      env:
+        AUTOMATION_ROOT: ${{ github.action_path }}/../..
+        REVIEW_PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+      run: node "$AUTOMATION_ROOT/claude-review/config.cjs"
+    - name: Build credential-free runtime
+      if: steps.request.outputs.eligible == 'true'
+      shell: bash
+      env:
+        AUTOMATION_ROOT: ${{ github.action_path }}/../..
+      run: |
+        review_image="$(node -p 'require(process.env.AUTOMATION_ROOT + "/claude-review/runtime/image.cjs")')"
+        docker build --tag "$review_image" "$AUTOMATION_ROOT/claude-review/runtime"
+        node -e 'require(process.env.AUTOMATION_ROOT + "/claude-review/runtime/services.cjs").prepareImages().catch(() => process.exit(1))'

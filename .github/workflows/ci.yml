@@ -1,0 +1,66 @@
+name: Shared automation checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: npm test
+      - name: Validate workflow syntax, including consumer examples
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= .github/workflows/*.yml examples/consumer/.github/workflows/*.yml
+  container-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Build execution runtime and fetch pinned sidecars
+        run: |
+          review_image="$(node -p 'require("./claude-review/runtime/image.cjs")')"
+          docker build --tag "$review_image" claude-review/runtime
+          node -e 'require("./claude-review/runtime/services.cjs").prepareImages().catch(() => process.exit(1))'
+      - name: Load the pinned official inline-comment backend
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: anthropics/claude-code-action
+          ref: 2dca132ff0e0c4094ce6048b422c6915a071210b
+          path: .trusted-claude-action
+          persist-credentials: false
+      - name: Install frozen production backend dependencies
+        run: |
+          review_bun_image="$(node -p 'require("./claude-review/runtime/services.cjs").BUN_IMAGE')"
+          docker run --rm --entrypoint bun --volume "$GITHUB_WORKSPACE/.trusted-claude-action:/action" --workdir /action "$review_bun_image" install --frozen-lockfile --ignore-scripts --production
+      - name: Verify real isolation and transports with dummy credentials
+        env:
+          CLAUDE_REVIEW_RUN_CONTAINER_TESTS: '1'
+          CLAUDE_REVIEW_TRUSTED_ACTION_DIR: ${{ github.workspace }}/.trusted-claude-action
+        run: node --test tests/upstream-config.test.cjs claude-review/runtime/integration.test.cjs
+  workflow-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          advanced-security: false
+          annotations: true
