@@ -14,7 +14,7 @@ const exec = promisify(execFile);
 const NODE_IMAGE = 'node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20';
 const AGENT_IMAGE = require('./image.cjs');
 const OAUTH = 'sk-ant-oat01-container-fixture-not-a-real-token';
-const APP_TOKEN = 'dummy-github-app-token-container-canary';
+const APP_TOKEN = 'ghs_' + 'T'.repeat(36);
 const CANARY = 'HOST_CREDENTIAL_MUST_NEVER_ENTER_AGENT';
 const ACTION_SHA = '2dca132ff0e0c4094ce6048b422c6915a071210b';
 const INLINE_ARGS = ['--no-env-file', '--config=${GITHUB_ACTION_PATH}/bunfig.toml', 'run', '${GITHUB_ACTION_PATH}/src/mcp/github-inline-comment-server.ts'];
@@ -45,7 +45,7 @@ test('dummy fixture exact recovery rejects previews and accepts native Read JSON
   assert.equal(recovered('EXACT_SOURCE_AFTER_PREVIEW'),false);
 });
 
-async function discoverGateway(services, id, serverName, denyWrite = false) {
+async function discoverGateway(services, id, serverName, denyWrite = false, call = null) {
   const server = services.mcpConfig.mcpServers[serverName];
   const script = `(async()=>{
 const h={'content-type':'application/json',accept:'application/json, text/event-stream',Authorization:${JSON.stringify(server.headers.Authorization)}};
@@ -53,7 +53,7 @@ async function rpc(id,method,params){const r=await fetch(${JSON.stringify(server
 const init=await rpc(1,'initialize',{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'fixture',version:'1'}});
 h['mcp-protocol-version']=init.result.protocolVersion;
 await rpc(undefined,'notifications/initialized',{});
-console.log(JSON.stringify({list:await rpc(2,'tools/list',{}),...(${denyWrite}?{denied:await rpc(3,'tools/call',{name:'push_files',arguments:{owner:'fixture',repo:'photos'}})}:{})}));
+console.log(JSON.stringify({list:await rpc(2,'tools/list',{}),...(${JSON.stringify(call)}?{called:await rpc(4,'tools/call',${JSON.stringify(call)})}:{}),...(${denyWrite}?{denied:await rpc(3,'tools/call',{name:'push_files',arguments:{owner:'fixture',repo:'photos'}})}:{})}));
 })().catch(()=>process.exit(1))`;
   return JSON.parse((await docker(['exec', `claude-review-${id}-model`, 'node', '-e', script])).stdout);
 }
@@ -112,7 +112,7 @@ test('real Docker isolation, reused proxy/gateway and native parent/helper recov
   const env = { PATH: process.env.PATH, GITHUB_WORKSPACE: repo, GITHUB_ACTION_PATH: privateDir,
     GITHUB_TOKEN: APP_TOKEN, CLAUDE_CODE_OAUTH_TOKEN: OAUTH, GITHUB_SERVER_URL: 'https://github.com',
     CLAUDE_REVIEW_OWNER: 'fixture', CLAUDE_REVIEW_REPO: 'project', CLAUDE_REVIEW_PR_NUMBER: '42',
-    CLAUDE_REVIEW_RUNTIME_IMAGE: AGENT_IMAGE };
+    CLAUDE_REVIEW_RUNTIME_IMAGE: AGENT_IMAGE, GITHUB_API_URL: upstreamURL };
   const hostConfig = { mcpServers: { github_inline_comment: { command: 'bun', args: INLINE_ARGS, env: { REPO_OWNER: 'fixture', REPO_NAME: 'project', PR_NUMBER: '42', GITHUB_TOKEN: APP_TOKEN } } } };
   const fixtureDocker = async (args, options = {}) => {
     if (args[0] === 'rm' && args[1] === '--force' && args[2]?.startsWith(`claude-review-${id}-`)) {
@@ -169,11 +169,28 @@ test('real Docker isolation, reused proxy/gateway and native parent/helper recov
     await fs.access(path.join(actionDir, 'node_modules', '@modelcontextprotocol', 'sdk'));
     try {
       services = await startServices({ sessionDir: session, env: { ...env, GITHUB_ACTION_PATH: actionDir }, mcpConfig: hostConfig }, { id, docker: fixtureDocker, attachGateway: attachDiagnosticGateway });
-      for (const [server, expected] of [['github', GITHUB_TOOLS], ['github_inline_comment', ['create_inline_comment']]]) {
+      for (const [server, expected] of [['github', GITHUB_TOOLS], ['github_inline_comment', ['create_inline_comment']], ['review_summary', ['add_review_summary']]]) {
         const discovery = await discoverGateway(services, id, server);
         assert.deepEqual(discovery.list.result.tools.map(tool => tool.name).sort(), [...expected].sort());
       }
-      assert.equal((await stateAt(adminURL)).requests.length, 0, 'Backend discovery must not start model inference');
+      const verdict = `Complete review.\n<!-- gumnut-review-verdict/v1 head=${'a'.repeat(40)} base=${'b'.repeat(40)} verdict=clean -->`;
+      const published = await discoverGateway(services, id, 'review_summary', false, {
+        name: 'add_review_summary', arguments: { body: verdict + '\n' + APP_TOKEN,
+          owner: 'other', repo: 'other', issue_number: 999, comment_id: 123 },
+      });
+      assert.ok(!published.called.error && !published.called.result?.isError, JSON.stringify(published.called));
+      const state = await stateAt(adminURL);
+      assert.equal(state.githubComments.length, 1);
+      assert.equal(state.githubComments[0].path, '/repos/fixture/project/issues/42/comments');
+      assert.equal(state.githubComments[0].headers.authorization, 'Bearer ' + APP_TOKEN);
+      assert.ok(state.githubComments[0].body.body.includes(verdict), 'Keep the coordinator verdict marker');
+      assert.ok(!state.githubComments[0].body.body.includes(APP_TOKEN), 'Reuse upstream secret redaction');
+      const denied = await discoverGateway(services, id, 'github', false, {
+        name: 'add_issue_comment', arguments: { owner: 'other', repo: 'other', issue_number: 999, body: 'forged' },
+      });
+      assert.ok(denied.called.error || denied.called.result?.isError);
+      assert.equal((await stateAt(adminURL)).githubComments.length, 1);
+      assert.equal(state.requests.length, 0, 'Backend discovery/publication must not start model inference');
     } catch(error) { await reportFailure('Genuine stdio startup/discovery failed'); throw error; }
     finally { if(services) await services.close(); }
   });

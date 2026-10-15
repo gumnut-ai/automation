@@ -6,7 +6,7 @@ const agents = require('./agents.json');
 
 const ACTION_SHA = '2dca132ff0e0c4094ce6048b422c6915a071210b';
 const RUNTIME_IMAGE = require('./runtime/image.cjs');
-const ALLOWED_TOOLS = 'ToolSearch,Agent(haiku-helper),Read,Grep,Glob,mcp__github__pull_request_read,mcp__github__get_file_contents,mcp__github__get_commit,mcp__github__list_commits,mcp__github__search_code,mcp__github__issue_read,mcp__github__add_issue_comment,mcp__github_inline_comment__create_inline_comment';
+const ALLOWED_TOOLS = 'ToolSearch,Agent(haiku-helper),Read,Grep,Glob,mcp__github__pull_request_read,mcp__github__get_file_contents,mcp__github__get_commit,mcp__github__list_commits,mcp__github__search_code,mcp__github__issue_read,mcp__review_summary__add_review_summary,mcp__github_inline_comment__create_inline_comment';
 // The official Action expands its own GITHUB_ACTION_PATH when parsing args.
 // Keep that backend path separate from the shared package's location.
 const MCP = { mcpServers: { github_inline_comment: {

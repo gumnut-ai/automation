@@ -50,6 +50,10 @@ test('sidecars own credentials; the agent receives only HTTP endpoints and sessi
   assert.deepEqual(f.config.mcpServers.github_inline_comment.env, {
     REPO_OWNER: 'fixture', REPO_NAME: 'project', PR_NUMBER: '3131', CLASSIFY_INLINE_COMMENTS: 'false', GITHUB_TOKEN: '',
   });
+  assert.deepEqual(f.config.mcpServers.review_summary.tools, ['add_review_summary']);
+  assert.equal(f.config.mcpServers.review_summary.env.REPO_OWNER, 'fixture');
+  assert.equal(f.config.mcpServers.review_summary.env.REPO_NAME, 'project');
+  assert.ok(!GITHUB_TOOLS.includes('add_issue_comment'));
   assert.equal(f.config.gateway.payloadPathPrefix, '/review-payloads');
   const createCalls = f.calls.filter(c => c.args[0] === 'create');
   assert.equal(createCalls.length, 2);

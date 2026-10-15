@@ -27,8 +27,12 @@ Keep `anthropics/claude-code-action` directly in the consumer workflow, pinned t
 the `ACTION_SHA` exported by `claude-review/config.cjs`. Its official App exchange
 and SDK stay on the host; the custom launcher starts a nonroot, read-only CLI
 container without host credentials. A model proxy and allowlisted MCP gateway
-mediate inference and GitHub access. Admission re-fetches live metadata, accepts
-only open, non-draft same-repository PRs targeting the default branch, and checks
+mediate inference and GitHub access. The GitHub backend exposes read tools only.
+A summary backend posts only to the admitted PR, using its validated host identity
+instead of model-supplied destinations. Local review policy must use
+`mcp__review_summary__add_review_summary` for the summary and
+`mcp__github_inline_comment__create_inline_comment` for inline findings. Admission
+re-fetches live metadata, accepts only open, non-draft same-repository PRs targeting the default branch, and checks
 manual actors or automatic dispatch origins. Contributor code is never executed
 by the privileged reviewer jobs.
 

@@ -15,15 +15,16 @@ const MODEL_IMAGE = 'ghcr.io/github/gh-aw-firewall/api-proxy:0.28.25@sha256:c3c7
 const GATEWAY_IMAGE = 'ghcr.io/github/gh-aw-mcpg:v0.4.25@sha256:9be0a86220e807a0ecc89e53d7453468f7a53fbc6b3d1efd2299025ffe01d086';
 const BUN_IMAGE = 'oven/bun:1.3.14-slim@sha256:d56a2534ffd262e92c12fd3249d3924d296d97086da773f821d7d0477435ea04';
 const GITHUB_IMAGE = 'ghcr.io/github/github-mcp-server:v1.12.2@sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6';
-const GITHUB_TOOLS = Object.freeze(['get_file_contents', 'get_commit', 'list_commits', 'search_code', 'pull_request_read', 'issue_read', 'add_issue_comment']);
+const GITHUB_TOOLS = Object.freeze(['get_file_contents', 'get_commit', 'list_commits', 'search_code', 'pull_request_read', 'issue_read']);
 const INLINE_TOOLS = Object.freeze(['create_inline_comment']);
+const COMMENT_TOOLS = Object.freeze(['add_review_summary']);
 
-function gatewayConfig({ id, actionDir, inline, githubImage, bunImage }) {
+function gatewayConfig({ id, actionDir, inline, summary, runtimeDir, githubImage, bunImage }) {
   return {
     gateway: {
       port: 8080, domain: 'mcpg', agentId: id, startupTimeout: 60,
       payloadDir: '/review-payloads', payloadPathPrefix: '/review-payloads',
-      agentPolicies: { [id]: { servers: ['github', 'github_inline_comment'], enclave: true } },
+      agentPolicies: { [id]: { servers: ['github', 'github_inline_comment', 'review_summary'], enclave: true } },
     },
     mcpServers: {
       github: {
@@ -37,6 +38,12 @@ function gatewayConfig({ id, actionDir, inline, githubImage, bunImage }) {
         args: ['--pull', 'never', '--label', `gumnut.claude-review-session=${id}`], entrypoint: 'bun', entrypointArgs: inline.args,
         mounts: [`${actionDir}:${actionDir}:ro`],
         env: { ...inline.env, GITHUB_TOKEN: '' }, tools: [...INLINE_TOOLS],
+      },
+      review_summary: {
+        type: 'stdio', container: bunImage,
+        args: ['--pull', 'never', '--label', `gumnut.claude-review-session=${id}`], entrypoint: 'bun', entrypointArgs: ['--no-env-file', '--config=' + actionDir + '/bunfig.toml', 'run', path.join(runtimeDir, 'summary-server.cjs')],
+        mounts: [`${actionDir}:${actionDir}:ro`, `${runtimeDir}:${runtimeDir}:ro`],
+        env: { ...summary, GITHUB_ACTION_PATH: actionDir, GITHUB_TOKEN: '' }, tools: [...COMMENT_TOOLS],
       },
     },
   };
@@ -107,7 +114,10 @@ async function startServices({ sessionDir, env, mcpConfig }, dependencies = {}) 
   await fs.mkdir(payloadDir, { recursive: true, mode: 0o755 });
   const socket = await (dependencies.socketStat || fs.stat)('/var/run/docker.sock');
   if (!Number.isInteger(socket.gid) || socket.gid < 0) throw new Error('Docker socket group unavailable');
-  const config = gatewayConfig({ id, actionDir, inline, githubImage: backendImages[0], bunImage: backendImages[1] });
+  const runtimeDir = await fs.realpath(__dirname);
+  const summary = { REPO_OWNER: owner, REPO_NAME: repo, PR_NUMBER: number,
+    GITHUB_API_URL: env.GITHUB_API_URL || 'https://api.github.com' };
+  const config = gatewayConfig({ id, actionDir, inline, summary, runtimeDir, githubImage: backendImages[0], bunImage: backendImages[1] });
   let child;
   let closed;
   const close = () => {
@@ -144,7 +154,7 @@ async function startServices({ sessionDir, env, mcpConfig }, dependencies = {}) 
     const gatewayEnv = {
       HOME: '/tmp/review-mcpg', DOCKER_HOST: 'unix:///var/run/docker.sock',
       MCP_GATEWAY_PORT: '8080', MCP_GATEWAY_DOMAIN: 'mcpg', MCP_GATEWAY_AGENT_ID: id,
-      MCP_GATEWAY_ALLOWED_MOUNT_ROOTS: `${actionDir}:ro`,
+      MCP_GATEWAY_ALLOWED_MOUNT_ROOTS: `${actionDir}:ro,${runtimeDir}:ro`,
       GITHUB_ACTION_PATH: actionDir,
       GITHUB_TOKEN: env.GITHUB_TOKEN, GITHUB_PERSONAL_ACCESS_TOKEN: env.GITHUB_TOKEN,
       GITHUB_HOST: env.GITHUB_SERVER_URL || 'https://github.com',
@@ -157,7 +167,7 @@ async function startServices({ sessionDir, env, mcpConfig }, dependencies = {}) 
       '--user', identity.user, '--group-add', String(socket.gid),
       '--entrypoint', '/app/awmg',
       '--volume', '/var/run/docker.sock:/var/run/docker.sock',
-      '--volume', `${actionDir}:${actionDir}:ro`, '--volume', `${payloadDir}:/review-payloads:rw`,
+      '--volume', `${actionDir}:${actionDir}:ro`, '--volume', `${runtimeDir}:${runtimeDir}:ro`, '--volume', `${payloadDir}:/review-payloads:rw`,
       ...Object.keys(gatewayEnv).flatMap(key => ['--env', key]), GATEWAY_IMAGE,
       '--listen', '0.0.0.0:8080', '--routed', '--config-stdin', '--log-dir', '/tmp/review-mcpg/logs'], { env: gatewayEnv });
     await run(['network', 'connect', '--alias', 'mcpg', network, names.gateway]);
@@ -176,11 +186,11 @@ async function startServices({ sessionDir, env, mcpConfig }, dependencies = {}) 
     starting = false;
     return {
       network, modelURL: 'http://model-proxy:10001', payloadDir,
-      mcpConfig: { mcpServers: Object.fromEntries(['github', 'github_inline_comment'].map(server => [server, {
+      mcpConfig: { mcpServers: Object.fromEntries(['github', 'github_inline_comment', 'review_summary'].map(server => [server, {
         type: 'http', url: `http://mcpg:8080/mcp/${server}`, headers: { Authorization: id },
       }])) }, close,
     };
   } catch (error) { await close(); throw error; }
 }
 
-module.exports = { prepareImages, startServices, gatewayConfig, MODEL_IMAGE, GATEWAY_IMAGE, GITHUB_IMAGE, BUN_IMAGE, GITHUB_TOOLS, INLINE_TOOLS };
+module.exports = { prepareImages, startServices, gatewayConfig, MODEL_IMAGE, GATEWAY_IMAGE, GITHUB_IMAGE, BUN_IMAGE, GITHUB_TOOLS, INLINE_TOOLS, COMMENT_TOOLS };

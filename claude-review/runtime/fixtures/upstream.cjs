@@ -3,7 +3,7 @@
 // never contacts Anthropic or GitHub; every model turn is scripted below.
 const http = require('node:http');
 const source = Array.from({ length: 1100 }, (_, index) => `fixture line ${String(index).padStart(4, '0')} ${'x'.repeat(48)}`).join('\n') + '\nEXACT_SOURCE_AFTER_PREVIEW\n';
-const state = { routes: [], readPaths: [], requests: [], toolCalls: [], parentCalls: 0, helperCalls: 0, recovered: { parent: false, helper: false }, failures: [] };
+const state = { githubComments: [], routes: [], readPaths: [], requests: [], toolCalls: [], parentCalls: 0, helperCalls: 0, recovered: { parent: false, helper: false }, failures: [] };
 
 function recovered(value, depth = 0) {
   if (depth > 8) return false;
@@ -69,6 +69,10 @@ const server = http.createServer(async (request, response) => {
     const chunks = []; let size = 0;
     for await (const chunk of request) { size += chunk.length; if (size > 16 * 1024 * 1024) throw Error('Fixture request too large'); chunks.push(chunk); }
     const query = JSON.parse(Buffer.concat(chunks).toString());
+    if (request.url === '/repos/fixture/project/issues/42/comments') {
+      state.githubComments.push({ path: request.url, headers: request.headers, body: query });
+      json(response, { id: 991, html_url: 'https://github.com/fixture/project/issues/42#issuecomment-991' }, 201); return;
+    }
     if (request.url.startsWith('/v1/messages/count_tokens')) { json(response, { input_tokens: 100 }); return; }
     if (request.url.startsWith('/v1/messages')) {
       state.requests.push({ path: request.url, headers: request.headers, body: query });
@@ -78,7 +82,7 @@ const server = http.createServer(async (request, response) => {
       if (query.id === undefined) { response.writeHead(202); response.end(); return; }
       let result;
       if (query.method === 'initialize') result = { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1' } };
-      else if (query.method === 'tools/list') result = { tools: ['get_file_contents', 'push_files', 'create_inline_comment'].map(tool) };
+      else if (query.method === 'tools/list') result = { tools: ['get_file_contents', 'push_files', 'create_inline_comment', 'add_review_summary'].map(tool) };
       else if (query.method === 'tools/call') { state.toolCalls.push(query.params); result = { content: [{ type: 'text', text: source }] }; }
       else result = {};
       json(response, { jsonrpc: '2.0', id: query.id, result }); return;

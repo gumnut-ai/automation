@@ -66,7 +66,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      issues: write # GitHub's add_issue_comment tool posts the PR summary.
+      issues: write # The summary backend posts only to the admitted PR.
       actions: read # Verify an automatic dispatch's originating PR event and actor.
       checks: write # Report review execution on the actual PR head.
       id-token: write # Exchange for the official Claude GitHub App's token.
