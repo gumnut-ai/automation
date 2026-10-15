@@ -1,0 +1,7 @@
+{
+  "name": "@gumnut-ai/automation",
+  "private": true,
+  "scripts": {
+    "test": "node --test claude-review/*.test.cjs claude-review/runtime/launcher.test.cjs claude-review/runtime/services.test.cjs pr-approval/*.test.cjs tests/*.test.cjs"
+  }
+}

@@ -1,0 +1,44 @@
+name: Standing PR approval
+description: Route, assess or publish standing reviewer evidence using caller-scoped credentials.
+inputs:
+  operation:
+    description: source, route, inspect or publish. Validated by the implementation.
+    required: true
+  mode:
+    description: Explicit activation mode, shadow or publish.
+  bot-login:
+    description: Exact standing approval App login.
+  numbers:
+    description: Validated JSON PR numbers for inspection.
+  number:
+    description: Validated PR number for publication.
+  publish-token:
+    description: Caller-created publication token. Supply only in a protected publisher job.
+outputs:
+  eligible:
+    description: Routing eligibility.
+    value: ${{ steps.run.outputs.eligible }}
+  number:
+    description: Admitted PR number.
+    value: ${{ steps.run.outputs.number }}
+  numbers:
+    description: Admitted or actionable PR numbers.
+    value: ${{ steps.run.outputs.numbers }}
+  actionable:
+    description: Whether inspection scheduled a publication.
+    value: ${{ steps.run.outputs.actionable }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        AUTOMATION_ROOT: ${{ github.action_path }}/../..
+        OPERATION: ${{ inputs.operation }}
+        GH_TOKEN: ${{ github.token }}
+        PR_APPROVAL_MODE: ${{ inputs.mode }}
+        PR_APPROVAL_BOT_LOGIN: ${{ inputs.bot-login }}
+        PR_NUMBERS: ${{ inputs.numbers }}
+        PR_NUMBER: ${{ inputs.number }}
+        PUBLISH_TOKEN: ${{ inputs.publish-token }}
+      run: node "$AUTOMATION_ROOT/pr-approval/request.cjs" "$OPERATION"
