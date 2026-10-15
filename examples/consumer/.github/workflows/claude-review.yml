@@ -47,7 +47,7 @@ jobs:
           ref: ${{ github.sha }} # PR target SHA, never the contributor head.
           persist-credentials: false
       - name: Dispatch trusted reviewer
-        uses: gumnut-ai/automation/actions/claude-dispatch@9cf551c78022be5e6d4f43942d827d02fa2ea00a # REPLACE with a reviewed full commit SHA
+        uses: gumnut-ai/automation/actions/claude-dispatch@8e0a7d2ac07ce01bf268b0a31dd2b20f6421a74d # REPLACE with a reviewed full commit SHA
         with:
           enabled: ${{ vars.CLAUDE_PR_REVIEW_ENABLED }}
 
@@ -79,7 +79,7 @@ jobs:
 
       - name: Validate review request
         id: prepare
-        uses: gumnut-ai/automation/actions/claude-prepare@9cf551c78022be5e6d4f43942d827d02fa2ea00a # REPLACE with a reviewed full commit SHA
+        uses: gumnut-ai/automation/actions/claude-prepare@8e0a7d2ac07ce01bf268b0a31dd2b20f6421a74d # REPLACE with a reviewed full commit SHA
         with:
           enabled: ${{ vars.CLAUDE_PR_REVIEW_ENABLED }}
 
@@ -120,7 +120,7 @@ jobs:
 
       - name: Report execution and sanitized usage
         if: always()
-        uses: gumnut-ai/automation/actions/claude-report@9cf551c78022be5e6d4f43942d827d02fa2ea00a # REPLACE with a reviewed full commit SHA
+        uses: gumnut-ai/automation/actions/claude-report@8e0a7d2ac07ce01bf268b0a31dd2b20f6421a74d # REPLACE with a reviewed full commit SHA
         with:
           eligible: ${{ steps.prepare.outputs.eligible }}
           check-id: ${{ steps.prepare.outputs.check_id }}

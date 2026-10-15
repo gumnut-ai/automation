@@ -61,8 +61,14 @@ test('consumer review directly invokes pinned official Action with admitted conf
   assert.ok(workflow.includes("github.event.pull_request.base.ref == github.event.repository.default_branch"));
   assert.ok(workflow.includes("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"));
   assert.ok(workflow.includes("if: steps.prepare.outputs.eligible == 'true'"));
+  const references = ['claude-review', 'pr-approval-request', 'pr-approval-coordinator']
+    .flatMap(name => [...example(name).matchAll(/gumnut-ai\/automation\/actions\/[\w-]+@([a-f0-9]{40})/g)]);
+  assert.equal(references.length, 7);
+  const pins = new Set(references.map(match => match[1]));
+  assert.equal(pins.size, 1, 'Upgrade every example action together');
+  const [pin] = pins;
   for (const name of ['claude-dispatch', 'claude-prepare', 'claude-report']) {
-    assert.ok(workflow.includes(`gumnut-ai/automation/actions/${name}@9cf551c78022be5e6d4f43942d827d02fa2ea00a`));
+    assert.ok(workflow.includes(`gumnut-ai/automation/actions/${name}@${pin}`));
   }
   assert.match(workflow, /if: always\(\)\n        uses: gumnut-ai\/automation\/actions\/claude-report/);
 });
