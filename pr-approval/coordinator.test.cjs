@@ -50,6 +50,23 @@ test('standing older reviewer signoffs approve with current-head CI', async () =
   assert.equal(result.signoffs.claude.commit, old);
   assert.equal(result.signoffs.codex.commit, old.slice(0, 7));
 });
+test('consumer example verdict template produces the coordinator decisions it describes', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const policy = fs.readFileSync(path.join(__dirname, '../examples/consumer/.github/claude-review/INSTRUCTIONS.md'), 'utf8');
+  const template = policy.match(/`(<!-- gumnut-review-verdict\/v1 [^`]+ -->)`/)?.[1];
+  assert.ok(template, 'Example must specify the coordinator verdict protocol');
+  for (const [verdict, expected] of [['clean', 'approve'], ['concerns', 'concerns'], ['incomplete', 'waiting']]) {
+    const marker = template.replace('<head>', head).replace('<base>', base).replace('<value>', verdict);
+    const result = await evaluate(fixture({ comments: [comment('claude[bot]', `Review completed.\n${marker}`), codex()] }));
+    assert.equal(result.decision, expected, verdict);
+    if (verdict === 'clean') {
+      assert.equal(result.signoffs.claude.commit, head);
+      assert.equal(result.signoffs.claude.base, base);
+    }
+  }
+  assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', 'Review completed.'), codex()] }))).decision, 'concerns');
+});
 test('incomplete Claude run preserves prior clean and prior concerns', async () => {
   assert.equal((await evaluate(fixture({ comments: [claude(), codex(), claude('incomplete', 4)] }))).decision, 'approve');
   assert.equal((await evaluate(fixture({ comments: [claude('concerns'), codex(), claude('incomplete', 4)] }))).decision, 'concerns');
