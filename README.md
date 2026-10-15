@@ -44,8 +44,8 @@ approval App. Keep review disabled until those are deliberately configured.
 
 For standing approval, start with `PR_APPROVAL_MODE=shadow` and the exact
 `PR_APPROVAL_BOT_LOGIN`. Assessment independently reads reviewer evidence and CI;
-it does not itself review code. Sign-offs can persist across pushes under the
-standing policy; an execution check alone is not a sign-off. Publication requires
+it does not itself review code. An execution check alone is not a sign-off.
+Publication requires
 `PR_APPROVAL_MODE=publish` and a separate `pr-approval-publisher` environment.
 Configure that environment to admit only the protected default branch, with
 required human reviewers as appropriate. Store `PR_APPROVAL_APP_ID` and
@@ -56,6 +56,19 @@ repository. Only the publisher job mints its token, then
 reassesses immediately before publishing. Never pass that token to assessment or
 inference. These examples do not configure environment protection or enable any
 reviewer or publisher.
+
+## Standing approval policy
+
+Reviewer sign-offs and the coordinator's approval are standing decisions that
+can persist across pushes. A new commit or deleted review comment does not by
+itself revoke an existing approval. Later reviewer concerns can cause the
+coordinator to withdraw its own approval; maintainers can explicitly dismiss it.
+
+CI is an independent merge condition, owned by the consumer. Pending or failed
+CI does not revoke an existing approval, and an approval is not a signal that
+current CI is green. The implementation currently waits for observed
+current-head CI to pass before publishing a new coordinator approval; that
+publication gate does not change the approval's lifetime.
 
 ## Updates and rollback
 
