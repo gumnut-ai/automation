@@ -226,6 +226,54 @@ test('recognized hosted clean output accepts only its observed content and boile
     assert.equal((await evaluate(fixture({ comments: [claude(), codex(), changed] }))).decision, 'concerns');
   }
 });
+test('receipt-marked hosted clean output signs off, and the receipt hides nothing else', async () => {
+  const receipt = '<!-- codex-review-receipt:v1 -->';
+  const result = await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', hostedCodex.receiptClean, 2)] }));
+  assert.equal(result.decision, 'approve');
+  assert.equal(result.signoffs.codex.commit, 'b81d5145c3');
+  for (const body of [
+    receipt,
+    `${receipt}\n${hostedCodex.receiptClean}`,
+    `Potential data loss remains.\n${hostedCodex.receiptClean}`,
+    hostedCodex.receiptClean.replace(receipt, `${receipt} Potential data loss remains.`),
+    hostedCodex.receiptClean.replace('codex-review-receipt:v1', 'codex-review-receipt:v2'),
+    hostedCodex.receiptClean.replace('Swish!', 'Swish!\n\nPotential data loss remains.'),
+    hostedCodex.receiptClean.replace('Swish!', '[P1] A significant issue remains.'),
+  ]) {
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, 'concerns');
+  }
+});
+test('summary with a review-state line is activity, and an edited summary keeps a later clean', async () => {
+  const activity = comment('chatgpt-codex-connector[bot]', hostedCodex.stateActivity, 4);
+  assert.equal((await evaluate(fixture({ comments: [claude(), codex(), activity] }))).decision, 'approve');
+  assert.equal((await evaluate(fixture({ comments: [claude(), activity] }))).decision, 'waiting');
+  assert.equal((await evaluate(fixture({ comments: [claude('concerns'), codex(), activity] }))).decision, 'concerns');
+  // Hosted order: the summary is created, the clean result posts, then the
+  // summary is edited to Completed after the clean result.
+  const summary = { ...comment('chatgpt-codex-connector[bot]', hostedCodex.stateActivity, 2), created_at: '2026-10-12T00:02:00Z', updated_at: '2026-10-12T00:05:05Z' };
+  const clean = { ...comment('chatgpt-codex-connector[bot]', hostedCodex.receiptClean, 3), created_at: '2026-10-12T00:05:00Z', updated_at: '2026-10-12T00:05:00Z' };
+  assert.equal((await evaluate(fixture({ comments: [claude(), summary, clean] }))).decision, 'approve');
+  const line = hostedCodex.stateActivity.split('\n')[1];
+  for (const body of [
+    hostedCodex.stateActivity.replace(line, '<!-- codex-review-state:v1 {"code_review": -->'),
+    hostedCodex.stateActivity.replace(line, '<!-- codex-review-state:v1 [1] -->'),
+    hostedCodex.stateActivity.replace(line, `${line} Potential data loss remains.`),
+    hostedCodex.stateActivity.replace(line, line.replace('v1', 'v2')),
+    hostedCodex.stateActivity.replace(line, `${line}\n${line}`),
+    hostedCodex.stateActivity.replace(line, line.replace('}} -->', '}} --> Fix before merge <!-- x {} -->')),
+  ]) {
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, 'concerns');
+  }
+});
+test('receipt-marked formal P3-only Codex review signs off; significant findings still block', async () => {
+  const r = { ...review('chatgpt-codex-connector[bot]', 'COMMENTED', 4), commit_id: 'aa547d16ff6b4d84241707f5ef21cdf131ecdc78', body: hostedCodex.receiptReview };
+  const finding = body => ({ body, author: { login: 'chatgpt-codex-connector', __typename: 'Bot' }, pullRequestReview: { databaseId: r.id } });
+  const options = bodies => ({ comments: [claude()], reviews: [r], threads: [{ id: 'advice', isResolved: false, comments: conn(bodies.map(finding)) }] });
+  const result = await evaluate(fixture(options(['[P3] Optional improvement'])));
+  assert.equal(result.decision, 'approve');
+  assert.equal(result.signoffs.codex.kind, 'advisory-review');
+  assert.equal((await evaluate(fixture(options(['[P3] Optional improvement', '[P2] Significant improvement'])))).decision, 'concerns');
+});
 test('formal P3-only Codex review signs off without treating activity or unrelated findings as approval', async () => {
   const r = { ...review('chatgpt-codex-connector[bot]', 'COMMENTED', 4), body: `### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.\n\n**Reviewed commit:** \`${old.slice(0, 7)}\`\n\n${hostedCodex.reviewFooter}` };
   const finding = (body, id = r.id) => ({ body, author: { login: 'chatgpt-codex-connector', __typename: 'Bot' }, pullRequestReview: { databaseId: id } });

@@ -19,13 +19,29 @@ const codexFooters = [
   `<details> <summary>ℹ️ About Codex in GitHub</summary> <br/> [Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you - Open a pull request for review - Mark a draft as ready - Comment "@codex review". If Codex has suggestions, it will comment; otherwise it will react with 👍. Codex can also answer questions or update the PR. Try commenting "@codex address that feedback". </details>`,
   `<details> <summary>ℹ️ About Codex in GitHub</summary> <br/> [Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you - Open a pull request for review - Mark a draft as ready - Comment "@codex review" or "@codex security review". Codex reacts with 👀 while any review is running, comments if it has suggestions, and reacts with 👍 once all reviews finish with no findings. </details>`,
 ].map(normalizeSpace);
+// Hosted Codex prefixes reviews and clean results with an invisible receipt
+// line. Only that exact leading line is metadata; the rest is still classified.
+const codexUnmarked = body => body.replace(/^<!-- codex-review-receipt:v1 -->(?:\r?\n|$)/, '');
 function codexContent(body) {
   const start = body.indexOf('<details>');
   if (start < 0) return body.trim();
   return codexFooters.includes(normalizeSpace(body.slice(start))) ? body.slice(0, start).trim() : null;
 }
+// The summary may carry one invisible machine-state comment after its header.
+// It is not a verdict, but it must be a single well-formed JSON object.
+function codexState(line) {
+  const match = line?.match(/^<!-- codex-review-state:v1 (\{.*\}) -->$/);
+  if (!match || match[1].includes('-->')) return false;
+  try {
+    const state = JSON.parse(match[1]);
+    return state !== null && typeof state === 'object' && !Array.isArray(state);
+  } catch {
+    return false;
+  }
+}
 function codexActivity(body) {
   const lines = body?.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  if (codexState(lines?.[1])) lines.splice(1, 1);
   if (!lines || lines.length < 6 || lines[0] !== '<!-- codex-pull-request-review-summary -->' || lines[1] !== '## Codex Review Summary' || lines[2] !== 'This comment shows the latest Codex review activity on this pull request.' || lines[3] !== '| Review | Status | Commit | Review trigger |' || lines[4] !== '| --- | --- | --- | --- |') return false;
   return lines.slice(5).every(line => /^\| 📝 \*\*Code Review\*\* \| (?:✅|🔄|👀|⏳|❌|⚠️) \*\*(?:Completed|Running|Queued|Failed|Cancelled)\*\*(?: (?:since )?<relative-time datetime="(\d{4}-\d{2}-\d{2}T[0-9:.]+Z)">\1<\/relative-time>)? \| `[0-9a-f]{7,40}` \| (?:Manual request|Pull request opened|PR opened|Automatic review) \|$/.test(line));
 }
@@ -187,14 +203,15 @@ function commentDecision(comment, login, kind = 'comment', findings = []) {
   if (login === CODEX) {
     // Activity metadata is not a reviewer verdict. Every other nonempty source
     // body must be understood, rather than silently preserving an old clean.
-    const content = codexContent(body);
+    const unmarked = codexUnmarked(body);
+    const content = codexContent(unmarked);
     if (codexActivity(content)) return null;
     // The explicit clean declaration is stable across observed responses; its
     // human closing sentence varies. Separate paragraphs remain unclassified.
     const clean = content?.match(/^Codex Review: Didn't find any major issues\.[^\r\n]*\r?\n+\*\*Reviewed commit:\*\*\s*`([0-9a-fA-F]{7,40})`$/);
     if (clean) return { state: 'clean', ...evidence, commit: clean[1] };
-    const commits = [...body.matchAll(/\*\*Reviewed commit:\*\*\s*`([0-9a-fA-F]{7,40})`/g)];
-    if (/^(?:\s*### 💡 Codex Review|Codex Review: Here are some suggestions\.)/.test(body) && commits.length === 1) {
+    const commits = [...unmarked.matchAll(/\*\*Reviewed commit:\*\*\s*`([0-9a-fA-F]{7,40})`/g)];
+    if (/^(?:\s*### 💡 Codex Review|Codex Review: Here are some suggestions\.)/.test(unmarked) && commits.length === 1) {
       const wrapper = content?.match(/^(?:### 💡 Codex Review\n+Here are some automated review suggestions for this pull request\.|Codex Review: Here are some suggestions\.)\n+\*\*Reviewed commit:\*\*\s*`([0-9a-fA-F]{7,40})`$/);
       if (kind === 'review' && wrapper && comment.commit_id?.startsWith(wrapper[1]) && findings.length && findings.every(c => advisory(c.body, login))) return { state: 'clean', ...evidence, kind: 'advisory-review' };
       return { state: 'concerns', ...evidence, commit: commits[0][1] };
