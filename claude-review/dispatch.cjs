@@ -1,8 +1,8 @@
 const fs = require('node:fs');
-const path = require('node:path');
 const { isFailureCategory } = require('./failure-diagnostic.cjs');
 
-const workflowPath = '.github/workflows/claude-review.yml';
+const workflowFile = 'claude-review.yml';
+const workflowPath = `.github/workflows/${workflowFile}`;
 const deniedMessage = 'Claude review routing could not be verified.';
 
 function requireValid(condition) {
@@ -52,6 +52,10 @@ function createApi(env, fetchImpl = fetch) {
   };
 }
 
+function runUrl(ctx, runId) {
+  return `https://github.com/${ctx.fullName}/actions/runs/${runId}`;
+}
+
 async function writer(api, ctx, login) {
   requireValid(typeof login === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(login));
   const result = await api('GET', `${ctx.root}/collaborators/${encodeURIComponent(login)}/permission`);
@@ -82,7 +86,7 @@ async function dispatch({ env, event, api }) {
   const head = sha(event.pull_request?.head?.sha);
   if (!eligiblePr(event.pull_request, ctx, number)) return { eligible: false };
   if (!(await permittedActor(api, ctx, event.sender))) return { eligible: false };
-  await api('POST', `${ctx.root}/actions/workflows/claude-review.yml/dispatches`, {
+  await api('POST', `${ctx.root}/actions/workflows/${workflowFile}/dispatches`, {
     ref: ctx.branch,
     inputs: { pr_number: String(number), expected_head: head, origin_run_id: String(runId) },
   });
@@ -115,7 +119,7 @@ async function prepare({ env, event, api, output }) {
   const runId = positiveInteger(env.GITHUB_RUN_ID);
   const check = await api('POST', `${ctx.root}/check-runs`, {
     name: 'Claude PR review', head_sha: head, status: 'in_progress',
-    details_url: `https://github.com/${ctx.fullName}/actions/runs/${runId}`,
+    details_url: runUrl(ctx, runId),
   });
   const checkId = positiveInteger(check?.id);
   output({ eligible: 'true', pr_number: String(number), head_sha: head, check_id: String(checkId), owner: ctx.owner, repo: ctx.repo });
@@ -142,10 +146,10 @@ function incompleteOutput(env, event, ctx) {
   return {
     title: 'Claude review did not complete',
     summary: [
-      'No Claude review was produced for this head. This check reports whether the review ran, not what it found.',
+      'The Claude review did not complete for this head; any comments it posted may be partial. This check reports whether the review ran, not what it found.',
       `Failure category: \`${category}\`.`,
-      `Once the cause clears, a human writer can re-request it: \`gh workflow run ${path.basename(workflowPath)} --ref ${ctx.branch} -f pr_number=${number}\`.`,
-      `Run log: https://github.com/${ctx.fullName}/actions/runs/${runId}`,
+      `Once the cause clears, a human writer can re-request it: \`gh workflow run ${workflowFile} --ref ${ctx.branch} -f pr_number=${number}\`.`,
+      `Run log: ${runUrl(ctx, runId)}`,
     ].join('\n\n'),
   };
 }

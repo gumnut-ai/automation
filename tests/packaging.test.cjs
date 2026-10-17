@@ -71,6 +71,9 @@ test('consumer review directly invokes pinned official Action with admitted conf
     assert.ok(workflow.includes(`gumnut-ai/automation/actions/${name}@${pin}`));
   }
   assert.match(workflow, /if: always\(\)\n        uses: gumnut-ai\/automation\/actions\/claude-report/);
+  const report = read('actions/claude-report/action.yml');
+  assert.match(report, /- name: Report safe failure category\n      id: diagnostic\n/);
+  assert.ok(report.includes(`CLAUDE_FAILURE_CATEGORY: ${expr('steps.diagnostic.outputs.category')}`));
 });
 
 test('approval example keeps native admission receipt and separates protected publication', () => {
