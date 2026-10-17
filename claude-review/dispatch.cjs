@@ -1,4 +1,6 @@
 const fs = require('node:fs');
+const path = require('node:path');
+const { isFailureCategory } = require('./failure-diagnostic.cjs');
 
 const workflowPath = '.github/workflows/claude-review.yml';
 const deniedMessage = 'Claude review routing could not be verified.';
@@ -126,7 +128,26 @@ async function finish({ env, event, api }) {
   const checkId = positiveInteger(env.CHECK_ID);
   const conclusion = env.REVIEW_JOB_STATUS === 'cancelled' ? 'cancelled' :
     env.REVIEW_JOB_STATUS === 'success' && env.CLAUDE_CONCLUSION === 'success' ? 'success' : 'failure';
-  await api('PATCH', `${ctx.root}/check-runs/${checkId}`, { status: 'completed', conclusion });
+  const body = { status: 'completed', conclusion };
+  if (conclusion === 'failure' && env.CLAUDE_CONCLUSION !== 'success') body.output = incompleteOutput(env, event, ctx);
+  await api('PATCH', `${ctx.root}/check-runs/${checkId}`, body);
+}
+
+// This check reports execution, never findings, and GitHub replaces its details
+// URL. Say on the PR that no review exists for this head and how to re-request it.
+function incompleteOutput(env, event, ctx) {
+  const number = positiveInteger(event.inputs?.pr_number);
+  const runId = positiveInteger(env.GITHUB_RUN_ID);
+  const category = isFailureCategory(env.CLAUDE_FAILURE_CATEGORY) ? env.CLAUDE_FAILURE_CATEGORY : 'not recorded';
+  return {
+    title: 'Claude review did not complete',
+    summary: [
+      'No Claude review was produced for this head. This check reports whether the review ran, not what it found.',
+      `Failure category: \`${category}\`.`,
+      `Once the cause clears, a human writer can re-request it: \`gh workflow run ${path.basename(workflowPath)} --ref ${ctx.branch} -f pr_number=${number}\`.`,
+      `Run log: https://github.com/${ctx.fullName}/actions/runs/${runId}`,
+    ].join('\n\n'),
+  };
 }
 
 function writeOutput(file, values) {

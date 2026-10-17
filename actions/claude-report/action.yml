@@ -19,6 +19,7 @@ runs:
   using: composite
   steps:
     - name: Report safe failure category
+      id: diagnostic
       if: always() && inputs.outcome == 'failure'
       shell: bash
       env:
@@ -56,4 +57,5 @@ runs:
         CHECK_ID: ${{ inputs.check-id }}
         REVIEW_JOB_STATUS: ${{ inputs.job-status == 'success' && steps.usage.outcome == 'success' && steps.upload.outcome == 'success' && 'success' || inputs.job-status == 'cancelled' && 'cancelled' || 'failure' }}
         CLAUDE_CONCLUSION: ${{ inputs.conclusion }}
+        CLAUDE_FAILURE_CATEGORY: ${{ steps.diagnostic.outputs.category }}
       run: node "$AUTOMATION_ROOT/claude-review/dispatch.cjs" finish

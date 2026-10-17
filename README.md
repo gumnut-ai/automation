@@ -8,7 +8,7 @@ contains shared mechanics; repository policy and activation stay with callers.
 | --- | --- |
 | `actions/claude-dispatch` | `enabled` (default `false`); validate metadata and dispatch the trusted default-branch workflow |
 | `actions/claude-prepare` | `enabled`; re-fetch admission, create an execution check, build the isolated runtime; output validated identity, launcher, prompt and arguments |
-| `actions/claude-report` | Admission/check ID and official Action results; finish the execution check and retain sanitized usage |
+| `actions/claude-report` | Admission/check ID and official Action results; finish the execution check and retain sanitized usage. When inference did not complete, the check says so and gives the safe failure category and the manual re-request |
 | `actions/pr-approval` | `operation`: `source`, `route`, `inspect`, or `publish`; explicit mode, bot identity, numbers and publisher token as applicable |
 
 See each `action.yml` for exact input and output names.

@@ -296,8 +296,41 @@ test('native check success requires successful job and successful inference', as
     const f = fixture();
     Object.assign(f.env, { CHECK_ID: '777', REVIEW_JOB_STATUS: status, CLAUDE_CONCLUSION: conclusion });
     await finish(f);
-    assert.deepEqual(writes(f), [{ method: 'PATCH', route: '/repos/example/project/check-runs/777', body: { status: 'completed', conclusion: expected } }]);
+    const [write, ...rest] = writes(f);
+    assert.deepEqual(rest, []);
+    assert.equal(write.method, 'PATCH');
+    assert.equal(write.route, '/repos/example/project/check-runs/777');
+    assert.equal(write.body.status, 'completed');
+    assert.equal(write.body.conclusion, expected);
   }
+});
+
+test('incomplete inference explains itself on the check; completed or cancelled runs do not', async () => {
+  const finished = async values => {
+    const f = fixture();
+    Object.assign(f.env, { CHECK_ID: '777' }, values);
+    await finish(f);
+    return writes(f)[0].body;
+  };
+  const failed = await finished({ REVIEW_JOB_STATUS: 'failure', CLAUDE_CONCLUSION: 'failure', CLAUDE_FAILURE_CATEGORY: 'rate_limit' });
+  assert.equal(failed.conclusion, 'failure');
+  assert.equal(failed.output.title, 'Claude review did not complete');
+  assert.match(failed.output.summary, /not what it found/);
+  assert.match(failed.output.summary, /Failure category: `rate_limit`\./);
+  assert.match(failed.output.summary, /`gh workflow run claude-review\.yml --ref main -f pr_number=2645`/);
+  assert.match(failed.output.summary, /https:\/\/github\.com\/example\/project\/actions\/runs\/12345/);
+
+  // A failure before inference has no category; untrusted values never reach the check.
+  for (const category of [undefined, '', 'SECRET\n::error::injection']) {
+    const body = await finished({ REVIEW_JOB_STATUS: 'failure', CLAUDE_CONCLUSION: undefined, CLAUDE_FAILURE_CATEGORY: category });
+    assert.match(body.output.summary, /Failure category: `not recorded`\./);
+    assert.doesNotMatch(body.output.summary, /SECRET/);
+  }
+
+  // Inference produced the review; a later reporting failure must not claim otherwise.
+  assert.equal((await finished({ REVIEW_JOB_STATUS: 'failure', CLAUDE_CONCLUSION: 'success' })).output, undefined);
+  assert.equal((await finished({ REVIEW_JOB_STATUS: 'success', CLAUDE_CONCLUSION: 'success' })).output, undefined);
+  assert.equal((await finished({ REVIEW_JOB_STATUS: 'cancelled', CLAUDE_CONCLUSION: undefined })).output, undefined);
 });
 
 test('finish refuses malformed check IDs and untrusted execution refs', async () => {
