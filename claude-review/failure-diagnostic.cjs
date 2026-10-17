@@ -22,6 +22,11 @@ function failureCategory(messages) {
   return resultFailures.has(result?.subtype) ? result.subtype : 'unknown';
 }
 
+// Every value failureCategory can return; consumers accept nothing else.
+function isFailureCategory(value) {
+  return value === 'diagnostic_unavailable' || categories.has(value) || resultFailures.has(value);
+}
+
 if (require.main === module) {
   let category = 'diagnostic_unavailable';
   try {
@@ -33,6 +38,7 @@ if (require.main === module) {
     // The action may fail before saving its SDK output. Preserve its failure.
   }
   console.log(`::notice::Claude review failure category: ${category}. Raw execution output withheld.`);
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `category=${category}\n`);
 }
 
-module.exports = { failureCategory };
+module.exports = { failureCategory, isFailureCategory };
