@@ -21,17 +21,18 @@ const codexFooters = [
 ].map(normalizeSpace);
 // Hosted Codex prefixes reviews and clean results with an invisible receipt
 // line. Only that exact leading line is metadata; the rest is still classified.
-const codexUnmarked = body => body.replace(/^<!-- codex-review-receipt:v1 -->(?:\r?\n|$)/, '');
+const codexUnmarked = body => body.replace(/^<!-- codex-review-receipt:v1 -->\r?\n/, '');
 function codexContent(body) {
   const start = body.indexOf('<details>');
   if (start < 0) return body.trim();
   return codexFooters.includes(normalizeSpace(body.slice(start))) ? body.slice(0, start).trim() : null;
 }
 // The summary may carry one invisible machine-state comment after its header.
-// It is not a verdict, but it must be a single well-formed JSON object.
+// It is not a verdict, but it must be a single well-formed JSON object that
+// cannot close the comment early and expose text.
 function codexState(line) {
   const match = line?.match(/^<!-- codex-review-state:v1 (\{.*\}) -->$/);
-  if (!match || match[1].includes('-->')) return false;
+  if (!match || /[<>]/.test(match[1])) return false;
   try {
     const state = JSON.parse(match[1]);
     return state !== null && typeof state === 'object' && !Array.isArray(state);

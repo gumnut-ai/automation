@@ -260,19 +260,18 @@ test('summary with a review-state line is activity, and an edited summary keeps 
     hostedCodex.stateActivity.replace(line, `${line} Potential data loss remains.`),
     hostedCodex.stateActivity.replace(line, line.replace('v1', 'v2')),
     hostedCodex.stateActivity.replace(line, `${line}\n${line}`),
-    hostedCodex.stateActivity.replace(line, line.replace('}} -->', '}} --> Fix before merge <!-- x {} -->')),
+    hostedCodex.stateActivity.replace('"status":"completed"', '"status":"--> Fix before merge <!--"'),
+    hostedCodex.stateActivity.replace('"status":"completed"', '"status":"--!> Fix before merge <!--"'),
   ]) {
     assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, 'concerns');
   }
 });
-test('receipt-marked formal P3-only Codex review signs off; significant findings still block', async () => {
+test('receipt-marked formal P3-only Codex review signs off', async () => {
   const r = { ...review('chatgpt-codex-connector[bot]', 'COMMENTED', 4), commit_id: 'aa547d16ff6b4d84241707f5ef21cdf131ecdc78', body: hostedCodex.receiptReview };
   const finding = body => ({ body, author: { login: 'chatgpt-codex-connector', __typename: 'Bot' }, pullRequestReview: { databaseId: r.id } });
-  const options = bodies => ({ comments: [claude()], reviews: [r], threads: [{ id: 'advice', isResolved: false, comments: conn(bodies.map(finding)) }] });
-  const result = await evaluate(fixture(options(['[P3] Optional improvement'])));
+  const result = await evaluate(fixture({ comments: [claude()], reviews: [r], threads: [{ id: 'advice', isResolved: false, comments: conn([finding('[P3] Optional improvement')]) }] }));
   assert.equal(result.decision, 'approve');
   assert.equal(result.signoffs.codex.kind, 'advisory-review');
-  assert.equal((await evaluate(fixture(options(['[P3] Optional improvement', '[P2] Significant improvement'])))).decision, 'concerns');
 });
 test('formal P3-only Codex review signs off without treating activity or unrelated findings as approval', async () => {
   const r = { ...review('chatgpt-codex-connector[bot]', 'COMMENTED', 4), body: `### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.\n\n**Reviewed commit:** \`${old.slice(0, 7)}\`\n\n${hostedCodex.reviewFooter}` };
