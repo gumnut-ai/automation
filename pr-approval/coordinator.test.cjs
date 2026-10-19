@@ -108,6 +108,14 @@ test('malformed, quoted, duplicate, and legacy Claude markers cannot establish a
     assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('claude[bot]', body, 4)] }))).decision, 'concerns');
   }
   assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', 'No major issues'), codex()] }))).decision, 'concerns');
+  for (const tail of [' trailing text', '<br>extra', ' <!-- -->']) {
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', claude().body + tail), codex()] }))).decision, 'concerns');
+  }
+});
+test('a trailing HTML line break after the Claude marker does not hide its verdict', async () => {
+  for (const tail of ['<br>', ' <br/> ', '<BR>\n', '<br><br />']) {
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', claude().body + tail), codex()] }))).decision, 'approve');
+  }
 });
 test('Codex summary and duplicate commit declarations do not count', async () => {
   for (const body of ['| Codex Review | Completed |', codex().body + '\n**Reviewed commit:** `abcdef0`']) assert.equal((await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', body)] }))).decision, 'concerns');

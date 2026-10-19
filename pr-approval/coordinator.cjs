@@ -195,7 +195,8 @@ function commentDecision(comment, login, kind = 'comment', findings = []) {
   if (login === CLAUDE) {
     if (markedSignificant(body)) return { state: 'concerns', ...evidence };
     const markers = outsideFences(body).split(/\r?\n/).filter(line => /^<!-- gumnut-review-verdict\//.test(line));
-    const match = markers[0]?.match(/^<!-- gumnut-review-verdict\/v1 head=([0-9a-f]{40}) base=([0-9a-f]{40}) verdict=(clean|concerns|incomplete) -->$/);
+    // A trailing HTML line break carries no meaning; any other trailing text stays malformed.
+    const match = markers[0]?.match(/^<!-- gumnut-review-verdict\/v1 head=([0-9a-f]{40}) base=([0-9a-f]{40}) verdict=(clean|concerns|incomplete) -->(?:\s*<br\s*\/?>)*\s*$/i);
     const count = (body.match(/gumnut-review-verdict\//g) || []).length;
     if (count && (count !== 1 || markers.length !== 1 || !match)) return { state: 'malformed', ...evidence };
     if (match) return { state: match[3], ...evidence, commit: match[1], base: match[2] };
