@@ -189,17 +189,40 @@ function latestWorkflowRuns(runs, head) {
   return [...latest.values()];
 }
 
+function claudeVerdict(body) {
+  // Presentation may vary; the protocol and its three fields must stay explicit
+  // and unambiguous. Count even quoted/fenced occurrences to reject duplicates.
+  const count = (body.match(/gumnut-review-verdict\//gi) || []).length;
+  if (!count) return null;
+  const visible = outsideFences(body);
+  const markers = [...visible.matchAll(/<!--\s*gumnut-review-verdict\/v1\s+([\s\S]*?)-->/gi)];
+  if (count !== 1 || markers.length !== 1) return { state: 'malformed' };
+  const marker = markers[0];
+  const before = visible.slice(0, marker.index).split('\n').at(-1);
+  const after = visible.slice(marker.index + marker[0].length).split('\n')[0];
+  // Whitespace, punctuation/emphasis and line breaks carry no verdict meaning.
+  // Same-line quotes, code, links, strikethrough, other HTML and prose still block.
+  const decoration = text => /^[\s(){}*_,.;:!?-]*$/.test(text.replace(/<br\s*\/?>/gi, ''));
+  if (/^(?: {4}|\t)/.test(before) || !decoration(before) || !decoration(after)) return { state: 'malformed' };
+  const fields = {};
+  let remaining = marker[1].trim();
+  while (remaining) {
+    const field = remaining.match(/^(head|base|verdict)\s*=\s*([a-z0-9]+)(?:\s+|$)/i);
+    if (!field || Object.hasOwn(fields, field[1].toLowerCase())) return { state: 'malformed' };
+    fields[field[1].toLowerCase()] = field[2].toLowerCase();
+    remaining = remaining.slice(field[0].length);
+  }
+  if (!sha(fields.head) || !sha(fields.base) || !['clean', 'concerns', 'incomplete'].includes(fields.verdict)) return { state: 'malformed' };
+  return { state: fields.verdict, commit: fields.head, base: fields.base };
+}
+
 function commentDecision(comment, login, kind = 'comment', findings = []) {
   const body = comment.body || '';
   const evidence = { url: comment.html_url, commit: comment.commit_id || null, kind };
   if (login === CLAUDE) {
     if (markedSignificant(body)) return { state: 'concerns', ...evidence };
-    const markers = outsideFences(body).split(/\r?\n/).filter(line => /^<!-- gumnut-review-verdict\//.test(line));
-    // A trailing HTML line break carries no meaning; any other trailing text stays malformed.
-    const match = markers[0]?.match(/^<!-- gumnut-review-verdict\/v1 head=([0-9a-f]{40}) base=([0-9a-f]{40}) verdict=(clean|concerns|incomplete) -->(?:\s*<br\s*\/?>)*\s*$/i);
-    const count = (body.match(/gumnut-review-verdict\//g) || []).length;
-    if (count && (count !== 1 || markers.length !== 1 || !match)) return { state: 'malformed', ...evidence };
-    if (match) return { state: match[3], ...evidence, commit: match[1], base: match[2] };
+    const verdict = claudeVerdict(body);
+    if (verdict) return { ...evidence, ...verdict };
   }
   if (significant(body, login)) return { state: 'concerns', ...evidence };
   if (login === CODEX) {

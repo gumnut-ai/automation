@@ -117,6 +117,69 @@ test('a trailing HTML line break after the Claude marker does not hide its verdi
     assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', claude().body + tail), codex()] }))).decision, 'approve');
   }
 });
+test('Claude verdict presentation differences preserve all three decisions and reviewed revisions', async () => {
+  const formats = [
+    marker => marker + ')',
+    marker => marker + '.) ** <br />',
+    marker => `  **(${marker})**  `,
+    marker => marker.replace('<!-- ', '<!--\t').replace(' head=', '\t head = ').replace(' base=', '   base\t=\t').replace(' verdict=', '\nverdict = ').replace(' -->', '\n-->'),
+    marker => marker.toUpperCase(),
+    marker => marker.replace(/head=(\w+) base=(\w+) verdict=(\w+)/, 'verdict=$3 base=$2 head=$1'),
+  ];
+  for (const [verdict, expected] of [['clean', 'approve'], ['concerns', 'concerns'], ['incomplete', 'waiting']]) {
+    const marker = claude(verdict).body.split('\n')[1];
+    for (const format of formats) {
+      const body = `Review completed.\n${format(marker)}`;
+      const result = await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }));
+      assert.equal(result.decision, expected, body);
+      if (verdict === 'clean') {
+        assert.equal(result.signoffs.claude.commit, old);
+        assert.equal(result.signoffs.claude.base, old);
+      }
+    }
+  }
+});
+test('presentation tolerance cannot turn incomplete or significant Claude feedback into clean', async () => {
+  const incomplete = { ...claude('incomplete', 4), body: claude('incomplete').body + ')' };
+  assert.equal((await evaluate(fixture({ comments: [claude(), codex(), incomplete] }))).decision, 'approve');
+  assert.equal((await evaluate(fixture({ comments: [claude('concerns'), codex(), incomplete] }))).decision, 'concerns');
+  const body = claude().body + ')\n<!-- gumnut-review-finding/v1 severity=significant -->';
+  assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'concerns');
+});
+test('Claude marker tolerance still rejects ambiguous fields, prose, quotes, code and other HTML', async () => {
+  const marker = claude().body.split('\n')[1];
+  const bodies = [
+    marker + ') but a concern remains',
+    marker + '<br /> unresolved issue',
+    marker + '<!-- -->',
+    `> ${marker})`,
+    `    ${marker}`,
+    `\t${marker}`,
+    '`' + marker + '`',
+    '~~~\n' + marker + '\n~~~',
+    '```html\n' + marker + '\n```',
+    `Example: (${marker})`,
+    `[${marker}]`,
+    `[${marker}]()`,
+    `![${marker}]()`,
+    `[${marker}][]`,
+    `~~${marker}~~`,
+    `<span>${marker}</span>`,
+    marker + '\n' + marker.toUpperCase(),
+    marker + '\n> ' + marker,
+    marker.replace('verdict=clean', 'verdict=unknown'),
+    marker.replace('verdict=clean', 'verdict=clean verdict=concerns'),
+    marker.replace('verdict=clean', 'verdict=clean VERDICT=clean'),
+    marker.replace('verdict=clean', 'verdict=clean extra=ignored'),
+    marker.replace(`head=${old}`, ''),
+    marker.replace(`base=${old}`, 'base=short'),
+    marker.replace(' -->', ''),
+  ];
+  for (const body of bodies) {
+    const result = await evaluate(fixture({ comments: [claude(), codex(), comment('claude[bot]', body, 4)] }));
+    assert.equal(result.decision, 'concerns', body);
+  }
+});
 test('Codex summary and duplicate commit declarations do not count', async () => {
   for (const body of ['| Codex Review | Completed |', codex().body + '\n**Reviewed commit:** `abcdef0`']) assert.equal((await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', body)] }))).decision, 'concerns');
 });

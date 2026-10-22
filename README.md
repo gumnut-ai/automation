@@ -64,6 +64,12 @@ can persist across pushes. A new commit or deleted review comment does not by
 itself revoke an existing approval. Later reviewer concerns can cause the
 coordinator to withdraw its own approval; maintainers can explicitly dismiss it.
 
+Claude's structured verdict tolerates whitespace, capitalization, field order,
+punctuation and emphasis wrappers, and HTML line breaks. It still requires one
+explicit marker with a verdict and valid head/base revisions. Duplicate markers,
+duplicate or unknown fields, and substantive same-line text do not establish a
+sign-off; significant findings continue to block approval.
+
 CI is an independent merge condition, owned by the consumer. Pending or failed
 CI does not revoke an existing approval, and an approval is not a signal that
 current CI is green. The implementation currently waits for observed
