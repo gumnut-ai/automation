@@ -194,12 +194,14 @@ function claudeVerdict(body) {
   // and unambiguous. Count even quoted/fenced occurrences to reject duplicates.
   const count = (body.match(/gumnut-review-verdict\//gi) || []).length;
   if (!count) return null;
-  const visible = outsideFences(body);
-  const markers = [...visible.matchAll(/<!--\s*gumnut-review-verdict\/v1\s+([\s\S]*?)-->/gi)];
+  const raw = body.replace(/\r\n/g, '\n');
+  const markers = [...raw.matchAll(/<!--\s*gumnut-review-verdict\/v1\s+([\s\S]*?)-->/gi)];
   if (count !== 1 || markers.length !== 1) return { state: 'malformed' };
   const marker = markers[0];
-  const before = visible.slice(0, marker.index).split('\n').at(-1);
-  const after = visible.slice(marker.index + marker[0].length).split('\n')[0];
+  // Fences may disqualify raw evidence, but must never reconstruct a declaration.
+  if (!outsideFences(raw).includes(marker[0])) return { state: 'malformed' };
+  const before = raw.slice(0, marker.index).split('\n').at(-1);
+  const after = raw.slice(marker.index + marker[0].length).split('\n')[0];
   // Whitespace, punctuation/emphasis and line breaks carry no verdict meaning.
   // Same-line quotes, code, links, strikethrough, other HTML and prose still block.
   const decoration = text => /^[\s(){}*_,.;:!?-]*$/.test(text.replace(/<br\s*\/?>/gi, ''));

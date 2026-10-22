@@ -124,6 +124,7 @@ test('Claude verdict presentation differences preserve all three decisions and r
     marker => `  **(${marker})**  `,
     marker => marker.replace('<!-- ', '<!--\t').replace(' head=', '\t head = ').replace(' base=', '   base\t=\t').replace(' verdict=', '\nverdict = ').replace(' -->', '\n-->'),
     marker => marker.toUpperCase(),
+    marker => marker.replace(' base=', '\r\nbase=').replace(' verdict=', '\r\nverdict='),
     marker => marker.replace(/head=(\w+) base=(\w+) verdict=(\w+)/, 'verdict=$3 base=$2 head=$1'),
   ];
   for (const [verdict, expected] of [['clean', 'approve'], ['concerns', 'concerns'], ['incomplete', 'waiting']]) {
@@ -145,6 +146,26 @@ test('presentation tolerance cannot turn incomplete or significant Claude feedba
   assert.equal((await evaluate(fixture({ comments: [claude('concerns'), codex(), incomplete] }))).decision, 'concerns');
   const body = claude().body + ')\n<!-- gumnut-review-finding/v1 severity=significant -->';
   assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'concerns');
+});
+test('fence removal cannot reconstruct malformed raw Claude verdict evidence', async () => {
+  for (const delimiter of ['```', '~~~']) {
+    for (const newline of ['\n', '\r\n']) {
+      const body = [
+        `<!-- gumnut-review-verdict/v1 head=${old}`,
+        delimiter,
+        'Unclassified feedback must not be removed to manufacture a verdict.',
+        delimiter,
+        `base=${old} verdict=clean -->`,
+      ].join(newline);
+      const result = await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }));
+      assert.equal(result.decision, 'concerns', body);
+    }
+  }
+  const marker = claude().body.split('\n')[1];
+  for (const body of [
+    `\`\`\`\r\n${marker}\r\n\`\`\``,
+    marker.replace(`base=${old}`, `\`\`\`\n\`\`\`\nbase=${old}`),
+  ]) assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'concerns', body);
 });
 test('Claude marker tolerance still rejects ambiguous fields, prose, quotes, code and other HTML', async () => {
   const marker = claude().body.split('\n')[1];
