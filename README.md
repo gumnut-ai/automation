@@ -9,6 +9,7 @@ contains shared mechanics; repository policy and activation stay with callers.
 | `actions/claude-dispatch` | `enabled` (default `false`); validate metadata and dispatch the trusted default-branch workflow |
 | `actions/claude-prepare` | `enabled`; re-fetch admission, create an execution check, build the isolated runtime; output validated identity, launcher, prompt and arguments |
 | `actions/claude-report` | Admission/check ID and official Action results; finish the execution check and retain sanitized usage. When inference did not complete, the check says so and gives the safe failure category and the manual re-request |
+| `actions/daemon-delivery` | `validate-proposal` (default `false`); resolves fresh native PR reviewer targets; exports `DAEMON_DELIVERY_TRUSTED` and `trusted-directory` |
 | `actions/dependency-delivery` | No inputs; preserves trusted helpers and constrains the pinned native gh-aw publishers; exports `DEPENDENCY_MAINTENANCE_TRUSTED` and `trusted-directory` |
 | `dependency-maintenance/compile.cjs` | Run from a consumer root with `/path/to/gh-aw`; compiles and corrects the fixed `dependency-maintenance` workflow for gh-aw v0.89.21 |
 | `actions/pr-approval` | `operation`: `source`, `route`, `inspect`, or `publish`; explicit mode, bot identity, numbers and publisher token as applicable |
@@ -58,6 +59,43 @@ repository. Only the publisher job mints its token, then
 reassesses immediately before publishing. Never pass that token to assessment or
 inference. These examples do not configure environment protection or enable any
 reviewer or publisher.
+
+## Native daemon human review handoff
+
+`actions/daemon-delivery` runs in a trusted native gh-aw safe-output job after
+v0.89.21 setup has populated `$RUNNER_TEMP/gh-aw/actions`, before native output
+processing or any candidate branch checkout. Pin gh-aw setup to
+`c35393777e5604a63721d09512263b1383301d4f` and this action to a reviewed immutable
+commit. The action verifies the exact `add_reviewer.cjs` and handler-manager
+hashes before patching either helper. It preserves native dependency ordering
+while making reviewer requests depend on their newly created PR's temporary ID.
+The native handler continues to own the API call and its configured restrictions.
+
+The action copies trusted preparation, reviewer and human-account exclusion
+helpers into a fresh `$RUNNER_TEMP` directory. It exports
+`DAEMON_DELIVERY_TRUSTED` and the `trusted-directory` output. Subsequent readback
+steps can load `require(process.env.DAEMON_DELIVERY_TRUSTED +
+'/human-reviewer.cjs').isHumanReviewer`. A separate job can use that same helper
+from a trusted checkout of `daemon-delivery/human-reviewer.cjs` at the same
+reviewed shared revision; the environment export is local to the publisher job.
+Dependency delivery uses this same canonical account-exclusion helper.
+
+The `validate-proposal` input defaults to `false`, preserving patch-only callers.
+With `true`, the caller must supply `GH_AW_AGENT_OUTPUT` through the step's
+environment. Before patching, validation requires a clean native output envelope
+containing one PR proposal and at most one human reviewer request targeting that
+proposal's temporary ID in the same repository. A proposal without a reviewer
+remains valid. Both modes constrain reviewer delivery to the current activation's
+resolved same-repository PR and exactly one eligible human, without team reviewers.
+Configure native `add-reviewer.target: '*'`; fixed or triggering targets are
+rejected because they override the published PR number. Reviewer logins must be
+canonical GitHub usernames, without surrounding whitespace.
+
+Callers retain publisher authentication, permissions, admission, native safe-output
+limits, work selection, review readiness, history, deduplication and delivery
+readback. This action creates no credentials or additional publication policy.
+It does not update or activate any consumer. Native integration tests use only
+synthetic fixtures and the pinned source; real delivery remains a consumer check.
 
 ## Native dependency delivery
 
@@ -148,6 +186,26 @@ lockfile left by native compilation is unvalidated and must not be committed or
 deployed. Review the generated diff before committing it. This CLI supplies the
 corrections above for compatible consumers; no manual lockfile patch is needed.
 
+## Shared daemon instructions
+
+`daemons/librarian.md`, `daemons/codebase-maintainer.md` and
+`daemons/dependency-maintenance.md` contain portable role instructions as plain
+Markdown. A consumer embeds its selected role file through a native gh-aw import
+pinned to a reviewed full commit SHA, with `inlined-imports: true`, and applies it
+together with its local daemon policy. Compilation embeds the instructions; the
+agent does not fetch policy at runtime.
+
+For example, add `inlined-imports: true` and an `imports` entry of
+`gumnut-ai/automation/daemons/librarian.md@<reviewed-full-commit-sha>` to the
+consumer's workflow frontmatter, replacing the placeholder with its reviewed SHA.
+
+The consumer owns scope, schedules, activation, limits, required checks,
+dependency exceptions, release evidence, lifecycle and retirement rules, and
+human review policy. The shared files supply common behavior without caller
+frontmatter or a configuration schema. Updating a shared file does not update
+consumers: review the change, update the immutable import and regenerate each
+consumer workflow while preserving its local policy.
+
 ## Standing approval policy
 
 Reviewer sign-offs and the coordinator's approval are standing decisions that
@@ -181,11 +239,11 @@ Official Action/runtime pin changes need a coordinated consumer update.
 
 ## Validation
 
-Run `npm test` (no installation required). Native dependency integration tests
+Run `npm test` (no installation required). Native delivery integration tests
 run when `GH_AW_SETUP_DIR` points to the pinned `actions/setup/js` source directory:
 
 ```bash
-GH_AW_SETUP_DIR=/path/to/gh-aw/actions/setup/js node --test dependency-maintenance/*.test.cjs
+GH_AW_SETUP_DIR=/path/to/gh-aw/actions/setup/js node --test daemon-delivery/*.test.cjs dependency-maintenance/*.test.cjs
 ```
 
 CI checks out the immutable native source and enables these tests, which use only

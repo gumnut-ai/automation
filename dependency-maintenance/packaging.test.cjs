@@ -34,7 +34,7 @@ test("composite exports trusted helpers outside candidate checkout before native
     assert.equal(path.dirname(trusted), temp);
     assert.equal(fs.readFileSync(output, "utf8"), `trusted-directory=${trusted}\n`);
     for (const name of ["delivery.cjs", "prepare.cjs", "human-reviewer.cjs"])
-      assert.equal(fs.readFileSync(path.join(trusted, name), "utf8"), fs.readFileSync(path.join(root, "dependency-maintenance", name), "utf8"));
+      assert.equal(fs.readFileSync(path.join(trusted, name), "utf8"), fs.readFileSync(path.join(root, name === "human-reviewer.cjs" ? "daemon-delivery" : "dependency-maintenance", name), "utf8"));
     assert.ok(fs.readFileSync(path.join(native, "push_to_pull_request_branch.cjs"), "utf8").includes(JSON.stringify(path.join(fs.realpathSync(trusted), "delivery.cjs"))));
     assert.ok(fs.readFileSync(path.join(native, "create_pull_request.cjs"), "utf8").includes(JSON.stringify(path.join(fs.realpathSync(trusted), "prepare.cjs"))));
     fs.writeFileSync(path.join(candidate, "delivery.cjs"), 'throw Error("untrusted candidate")');

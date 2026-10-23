@@ -16,7 +16,8 @@ runs:
       run: | # zizmor: ignore[github-env]
         set -euo pipefail
         trusted="$(mktemp -d "$RUNNER_TEMP/dependency-maintenance-trusted.XXXXXX")"
-        cp "$AUTOMATION_ROOT/dependency-maintenance/"{delivery,prepare,human-reviewer}.cjs "$trusted/"
+        cp "$AUTOMATION_ROOT/dependency-maintenance/"{delivery,prepare}.cjs "$trusted/"
+        cp "$AUTOMATION_ROOT/daemon-delivery/human-reviewer.cjs" "$trusted/"
         node "$trusted/prepare.cjs"
         printf 'DEPENDENCY_MAINTENANCE_TRUSTED=%s\n' "$trusted" >> "$GITHUB_ENV"
         printf 'trusted-directory=%s\n' "$trusted" >> "$GITHUB_OUTPUT"
