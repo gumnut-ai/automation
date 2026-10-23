@@ -28,6 +28,8 @@ jobs:
       - run: npm test
         env:
           GH_AW_SETUP_DIR: ${{ github.workspace }}/.trusted-gh-aw/actions/setup/js
+      - name: Verify the locked native CLI installs without inference
+        uses: ./actions/codex-runtime
       - name: Validate workflow syntax, including consumer examples
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= .github/workflows/*.yml examples/consumer/.github/workflows/*.yml
   container-isolation:

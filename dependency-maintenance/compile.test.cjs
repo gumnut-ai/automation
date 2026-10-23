@@ -17,6 +17,12 @@ const imageSource = Object.entries(images).map(([key, value]) => `      ${key}: 
 const source = `---
 on:
   workflow_dispatch:
+  permissions:
+    contents: read
+    actions: read
+engine:
+  id: codex
+  version: "0.156.1"
 sandbox:
   agent:
     images:
@@ -36,6 +42,7 @@ const token = `      - name: Generate GitHub App token
         id: safe-outputs-app-token
         uses: actions/create-github-app-token@${actionSha}
         with:
+          permission-contents: write
           permission-pull-requests: write
       - name: Publish
         run: echo fixture
@@ -45,10 +52,13 @@ const extra = `  unrelated-job:
     steps:
       - run: echo '${JSON.stringify({ container: { imageTag: '0.28.25' } })}'
 `;
-const raw = `# gh-aw-manifest: {"repo":"github/gh-aw/actions/setup","sha":"${setup}","version":"${setup}"}
+const raw = `# gh-aw-manifest: {"compiler_version":"v0.89.21","repo":"github/gh-aw/actions/setup","sha":"${setup}","version":"${setup}"}
 jobs:
   pre_activation:
     environment: fixture-publisher
+    permissions:
+      actions: read
+      contents: read
     steps:
       - run: echo admission
   safe_outputs:
@@ -70,7 +80,7 @@ ${token}  agent:
     environment: fixture-publisher
     steps:
       - run: docker pull ${Object.values(images).map(image => image.split('@')[0]).join(' ')}
-      - run: echo '${JSON.stringify({ container: { imageTag: '0.28.25' } })}'
+      - run: printf '%s\\n' '${JSON.stringify({ container: { imageTag: '0.28.25' } })}' > /tmp/awf-config.json
 ${extra}`;
 
 function job(text, name) {
@@ -79,12 +89,12 @@ function job(text, name) {
   return text.slice(start).split(/\n(?=  [\w-]+:\n)/)[0];
 }
 
-test('corrects native permissions, detector images and environments while preserving caller content', () => {
+test('validates native admission and corrects images/environments while preserving caller content', () => {
   const result = correctWorkflow(source, raw);
   assert.equal(job(result, 'pre_activation'), `  pre_activation:
     permissions:
-      contents: read
       actions: read
+      contents: read
     steps:
       - run: echo admission`);
   for (const name of ['safe_outputs', 'conclusion']) {
@@ -92,7 +102,7 @@ test('corrects native permissions, detector images and environments while preser
   }
   const detector = job(result, 'detection').split('\n');
   assert.equal(detector[2], `      - run: docker pull ${Object.values(images).join(' ')}`);
-  assert.deepEqual(JSON.parse(detector[3].split("echo '")[1].slice(0, -1)), { container: { images } });
+  assert.deepEqual(JSON.parse(detector[3].match(/'({.*})' > /)[1]), { container: { images } });
   assert.equal(job(result, 'unrelated-job'), extra);
   assert.equal(job(result, 'agent'), `  agent:
     permissions:
@@ -103,7 +113,7 @@ test('corrects native permissions, detector images and environments while preser
       - uses: fixture/guessed@${actionSha} # Authoritative source label
       - uses: github/gh-aw/actions/setup@${setup} # v0.89.21`);
   assert.deepEqual(JSON.parse(result.split('\n')[0].slice('# gh-aw-manifest: '.length)), {
-    repo: 'github/gh-aw/actions/setup', sha: setup, version: 'v0.89.21',
+    compiler_version: 'v0.89.21', repo: 'github/gh-aw/actions/setup', sha: setup, version: 'v0.89.21',
   });
 });
 
@@ -118,7 +128,8 @@ test('uses each caller environment and digest pins, including already pinned det
 
 for (const [name, change, error] of [
   ['missing admission', text => text.replace('  pre_activation:\n', '  renamed_admission:\n'), /expected generated pre_activation/],
-  ['admission permission drift', text => text.replace('  pre_activation:\n', '  pre_activation:\n    permissions: {}\n'), /admission correction point drift/],
+  ['admission permission drift', text => text.replace('      actions: read', '      actions: write'), /expected generated admission/],
+  ['unexpected admission scope', text => text.replace('      actions: read', '      actions: read\n      issues: write'), /expected generated admission/],
   ['missing detector', text => text.replace('  detection:\n', '  renamed_detection:\n'), /expected generated detection/],
   ['detector configuration drift', text => text.replace('"imageTag":"0.28.25"', '"imageTag":"new-version"'), /detector configuration correction point drift/],
   ['detector image drift', text => text.replace(images.agent.split('@')[0], 'fixture/unexpected-image'), /detector image correction point drift/],
@@ -126,6 +137,7 @@ for (const [name, change, error] of [
   ['excess Issues permission', text => text.replace('permission-pull-requests: write\n', 'permission-pull-requests: write\n          permission-issues: write\n'), /publisher Issues permission drift/],
   ['token count drift', text => text.replace(token, '      - run: echo no-token\n'), /expected two publisher token steps/],
   ['duplicate publisher token', text => text.replace(token, token + token), /expected two publisher token steps/],
+  ['publisher token in another job', text => text.replace(extra, extra + token), /publisher token job drift/],
   ['missing jobs section', text => text.replace('jobs:\n', 'renamed-jobs:\n'), /expected generated jobs section/],
   ['publisher environment drift', text => text.replace('  safe_outputs:\n    environment: fixture-publisher', '  safe_outputs:\n    environment: unexpected'), /publisher environment drift/],
 ]) test(`rejects ${name}`, () => assert.throws(() => correctWorkflow(source, change(raw)), error));
@@ -133,6 +145,8 @@ for (const [name, change, error] of [
 for (const [name, changed] of [
   ['unpinned image', source.replace(/@sha256:1{64}/, '')],
   ['duplicate image entry', source.replace(imageSource, imageSource + `\n      agent: ${images.agent}`)],
+  ['missing admission permissions', source.replace('  permissions:\n    contents: read\n    actions: read\n', '')],
+  ['unsafe admission permissions', source.replace('    actions: read', '    actions: write')],
   ['missing environment', source.replace('  environment: fixture-publisher\n', '')],
   ['object environment', source.replace('  environment: fixture-publisher', '  environment:\n    name: fixture-publisher')],
 ]) test(`rejects caller ${name}`, () => assert.throws(() => correctWorkflow(changed, raw)));

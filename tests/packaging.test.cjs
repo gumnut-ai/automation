@@ -94,10 +94,11 @@ test('approval example keeps native admission receipt and separates protected pu
 
 test('runnable workflows and composites pin external actions and never persist checkout credentials', () => {
   const files = ['.github/workflows/ci.yml', ...['claude-review', 'pr-approval-request', 'pr-approval-coordinator'].map(name => `examples/consumer/.github/workflows/${name}.yml`),
-    ...['claude-dispatch', 'claude-prepare', 'claude-report', 'pr-approval'].map(name => `actions/${name}/action.yml`)];
+    ...['claude-dispatch', 'claude-prepare', 'claude-report', 'pr-approval', 'codex-runtime'].map(name => `actions/${name}/action.yml`)];
   for (const file of files) {
     const text = read(file);
     for (const match of text.matchAll(/^\s+(?:- )?uses: ([^\s#]+)/gm)) {
+      if (match[1].startsWith('./')) continue; // Repository-local actions have no external revision.
       assert.match(match[1], /^[\w.-]+\/[\w./-]+@[a-f0-9]{40}$/, file);
     }
     const checkouts = [...text.matchAll(/uses: actions\/checkout@/g)].length;

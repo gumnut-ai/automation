@@ -11,6 +11,8 @@ contains shared mechanics; repository policy and activation stay with callers.
 | `actions/claude-report` | Admission/check ID and official Action results; finish the execution check and retain sanitized usage. When inference did not complete, the check says so and gives the safe failure category and the manual re-request |
 | `actions/daemon-delivery` | `validate-proposal` (default `false`); resolves fresh native PR reviewer targets; exports `DAEMON_DELIVERY_TRUSTED` and `trusted-directory` |
 | `actions/dependency-delivery` | No inputs; preserves trusted helpers and constrains the pinned native gh-aw publishers; exports `DEPENDENCY_MAINTENANCE_TRUSTED` and `trusted-directory` |
+| `actions/codex-runtime` | No inputs; installs the packaged integrity-locked Codex runtime and exposes native detector discovery |
+| `native-toolchain/gh-aw-v0.89.21.cjs` | Three bounded compatibility operations for the pinned native compiler; see [the contract](native-toolchain/README.md) |
 | `dependency-maintenance/compile.cjs` | Run from a consumer root with `/path/to/gh-aw`; compiles and corrects the fixed `dependency-maintenance` workflow for gh-aw v0.89.21 |
 | `actions/pr-approval` | `operation`: `source`, `route`, `inspect`, or `publish`; explicit mode, bot identity, numbers and publisher token as applicable |
 
@@ -171,12 +173,14 @@ v0.89.21 executable. Keep the temporary shared checkout out of consumer commits.
 The CLI invokes `compile dependency-maintenance` with the pinned setup action and
 `--no-check-update`, then corrects `.github/workflows/dependency-maintenance.lock.yml`.
 It leaves the workflow source unchanged. The source must include admission steps
-that generate `pre_activation`, three digest-qualified `sandbox.agent.images`
+that generate `pre_activation`, Contents/Actions read under `on.permissions`, three digest-qualified `sandbox.agent.images`
 entries (`agent`, `apiProxy`, `squid`), and a scalar `safe-outputs.environment`.
 Native generation must produce `safe_outputs` and `conclusion`, each with one
 publisher App-token step, plus the `detection` job using AWF v0.28.25.
 
-The shared corrections grant admission only Contents/Actions read, pin detector
+Declare `on.permissions` with `contents: read` and `actions: read`; the pinned
+native compiler applies those scopes to admission. The shared compiler verifies
+the source declaration and generated read scopes. Its corrections pin detector
 images to the source digests, add Issues read to both publisher tokens, and remove
 the caller's publisher environment from other jobs. They also normalize the setup
 release label and preserve source action annotations. Repository policy, schedules,
@@ -239,7 +243,9 @@ Official Action/runtime pin changes need a coordinated consumer update.
 
 ## Validation
 
-Run `npm test` (no installation required). Native delivery integration tests
+Run `npm test` (no installation required). CI also exercises the packaged
+locked Codex installer on Linux with a version-only command and no provider
+credentials. Native delivery integration tests
 run when `GH_AW_SETUP_DIR` points to the pinned `actions/setup/js` source directory:
 
 ```bash

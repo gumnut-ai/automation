@@ -1,0 +1,8 @@
+name: Pinned native Codex runtime
+description: Install the reviewed Codex wrapper and platform binary for native gh-aw discovery.
+runs:
+  using: composite
+  steps:
+    - name: Install locked Codex runtime
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/../../native-toolchain/codex-runtime/install.sh"
