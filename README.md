@@ -1,7 +1,7 @@
-# Shared review automation
+# Shared automation
 
 Composite GitHub Actions for isolated, subscription-backed Claude review and
-standing PR approval. Consumers pin a reviewed immutable commit. This repository
+standing PR approval, plus a native dependency publisher boundary. Consumers pin a reviewed immutable commit. This repository
 contains shared mechanics; repository policy and activation stay with callers.
 
 | Component | Interface |
@@ -9,6 +9,7 @@ contains shared mechanics; repository policy and activation stay with callers.
 | `actions/claude-dispatch` | `enabled` (default `false`); validate metadata and dispatch the trusted default-branch workflow |
 | `actions/claude-prepare` | `enabled`; re-fetch admission, create an execution check, build the isolated runtime; output validated identity, launcher, prompt and arguments |
 | `actions/claude-report` | Admission/check ID and official Action results; finish the execution check and retain sanitized usage. When inference did not complete, the check says so and gives the safe failure category and the manual re-request |
+| `actions/dependency-delivery` | No inputs; preserves trusted helpers and constrains the pinned native gh-aw publishers; exports `DEPENDENCY_MAINTENANCE_TRUSTED` and `trusted-directory` |
 | `actions/pr-approval` | `operation`: `source`, `route`, `inspect`, or `publish`; explicit mode, bot identity, numbers and publisher token as applicable |
 
 See each `action.yml` for exact input and output names.
@@ -57,6 +58,60 @@ reassesses immediately before publishing. Never pass that token to assessment or
 inference. These examples do not configure environment protection or enable any
 reviewer or publisher.
 
+## Native dependency delivery
+
+`actions/dependency-delivery` runs in a caller's trusted native gh-aw safe-output
+job after v0.89.21 setup has populated `$RUNNER_TEMP/gh-aw/actions`, before any
+publisher or candidate branch checkout. Pin gh-aw to
+`c35393777e5604a63721d09512263b1383301d4f`. The action verifies the exact native
+publisher source hashes before patching either file; source drift fails closed.
+It copies delivery, preparation and human-account exclusion helpers from the
+pinned shared action into a fresh directory under `$RUNNER_TEMP`, then applies
+the native guards. It exports that directory through
+`DEPENDENCY_MAINTENANCE_TRUSTED` for subsequent job steps and the
+`trusted-directory` action output. The action has no inputs and creates no
+credentials. The caller retains its existing isolated publisher authentication,
+permissions, native safe-output configuration, protected-file policy and gates.
+
+The delivery guard accepts same-repository open PRs targeting `main`, with exact
+Dependabot or Renovate bot identities, or the exact Gumnut bot identity on a
+`dependency-maintenance/` branch. Repairs require native signed commits and
+`fallback_as_pull_request: false`. The guard binds native signed mutations to
+the captured PR head through native compare-and-swap, disables Git push fallback
+and replacement PR publication, and stops after an uncertain mutation. Native
+bundle checks also inspect the resulting PR tree for protected files, including
+merge-only changes. Native transport limitations still apply.
+
+The human handoff accepts `{ pull_request_number, head_sha, reviewer, action }`,
+where `action` is `assign` or `request_review`. It validates the exact PR head,
+a human account with repository write access and known automation exclusions,
+executes the selected action once, then reads back the result. Proposal caps,
+review readiness, history, deduplication and work selection remain caller/agent
+policy. Inspect uncertain publication before another run.
+
+For example, a synthetic `fixture/project` caller inserts the following into its
+trusted safe-output job (replace `REVIEWED_FULL_COMMIT_SHA` with a reviewed
+immutable shared commit):
+
+```yaml
+- name: Constrain native dependency delivery
+  uses: gumnut-ai/automation/actions/dependency-delivery@REVIEWED_FULL_COMMIT_SHA
+```
+
+Its native custom safe-output script invokes the trusted module using the native
+handler's `github`, `context` and `item` arguments:
+
+```javascript
+return await require(process.env.DEPENDENCY_MAINTENANCE_TRUSTED + '/delivery.cjs')
+  .handoff({ github, context, item });
+```
+
+This is an integration fragment, not a complete workflow or activation policy.
+A consumer still needs its reviewed native workflow and compiled safe-output
+configuration. Local contract tests establish source compatibility and fixture
+behavior; hosted credential isolation and real publication require separate
+consumer validation.
+
 ## Standing approval policy
 
 Reviewer sign-offs and the coordinator's approval are standing decisions that
@@ -90,7 +145,15 @@ Official Action/runtime pin changes need a coordinated consumer update.
 
 ## Validation
 
-Run `npm test` (no installation required). CI also checks workflow syntax and
+Run `npm test` (no installation required). Native dependency integration tests
+run when `GH_AW_SETUP_DIR` points to the pinned `actions/setup/js` source directory:
+
+```bash
+GH_AW_SETUP_DIR=/path/to/gh-aw/actions/setup/js node --test dependency-maintenance/*.test.cjs
+```
+
+CI checks out the immutable native source and enables these tests, which use only
+disposable local Git fixtures and dummy identities. CI also checks workflow syntax and
 security and runs the opt-in Linux Docker isolation/transport suite using dummy
 credentials. It builds `claude-review/runtime`, pulls digest-pinned sidecars,
 checks out the pinned official Action and installs its frozen production backend
