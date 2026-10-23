@@ -10,6 +10,7 @@ contains shared mechanics; repository policy and activation stay with callers.
 | `actions/claude-prepare` | `enabled`; re-fetch admission, create an execution check, build the isolated runtime; output validated identity, launcher, prompt and arguments |
 | `actions/claude-report` | Admission/check ID and official Action results; finish the execution check and retain sanitized usage. When inference did not complete, the check says so and gives the safe failure category and the manual re-request |
 | `actions/dependency-delivery` | No inputs; preserves trusted helpers and constrains the pinned native gh-aw publishers; exports `DEPENDENCY_MAINTENANCE_TRUSTED` and `trusted-directory` |
+| `dependency-maintenance/compile.cjs` | Run from a consumer root with `/path/to/gh-aw`; compiles and corrects the fixed `dependency-maintenance` workflow for gh-aw v0.89.21 |
 | `actions/pr-approval` | `operation`: `source`, `route`, `inspect`, or `publish`; explicit mode, bot identity, numbers and publisher token as applicable |
 
 See each `action.yml` for exact input and output names.
@@ -103,16 +104,49 @@ Compile locally with the pinned v0.89.21 compiler:
 gh aw compile --dir examples/consumer/.github/workflows --action-tag c35393777e5604a63721d09512263b1383301d4f
 ```
 
-The example distributes source only; remove the generated lockfile after local
-validation. A real caller must review and commit its compiled workflow. For
-v0.89.21, add `permission-issues: read` alongside
-`permission-pull-requests: write` in the generated publisher App-token steps:
-native reviewer label checks need Issues read, which that compiler omits. Keep
-this correction in the caller's generation/validation process. Review generated
+The example distributes raw native source only; remove the generated lockfile
+after local validation. It does not include the admission steps or explicit AWF
+image pins required by the shared compiler below. Its raw v0.89.21 output needs
+`permission-issues: read` alongside `permission-pull-requests: write` in both
+publisher App-token steps: native reviewer label checks need Issues read, which
+that compiler omits. A real caller must review and commit its corrected workflow. Review generated
 permissions, container pins, environment protection, credentials and repository
 policy before any separate activation decision. Local contract tests establish
 source compatibility and fixture behavior; hosted credential isolation and real
 publication require separate consumer validation.
+
+### Shared dependency compiler
+
+Compatible consumers can replace their local correction wrapper with
+`dependency-maintenance/compile.cjs` from an immutable checkout of this repository.
+From the consumer repository root, check out a reviewed full commit (use the same
+revision as its shared delivery action), then run the CLI directly:
+
+```bash
+git clone https://github.com/gumnut-ai/automation.git .shared-automation
+git -C .shared-automation checkout --detach "$AUTOMATION_SHA"
+node .shared-automation/dependency-maintenance/compile.cjs "$GH_AW_COMPILER"
+```
+
+Set `AUTOMATION_SHA` to the reviewed full commit and `GH_AW_COMPILER` to the local
+v0.89.21 executable. Keep the temporary shared checkout out of consumer commits.
+The CLI invokes `compile dependency-maintenance` with the pinned setup action and
+`--no-check-update`, then corrects `.github/workflows/dependency-maintenance.lock.yml`.
+It leaves the workflow source unchanged. The source must include admission steps
+that generate `pre_activation`, three digest-qualified `sandbox.agent.images`
+entries (`agent`, `apiProxy`, `squid`), and a scalar `safe-outputs.environment`.
+Native generation must produce `safe_outputs` and `conclusion`, each with one
+publisher App-token step, plus the `detection` job using AWF v0.28.25.
+
+The shared corrections grant admission only Contents/Actions read, pin detector
+images to the source digests, add Issues read to both publisher tokens, and remove
+the caller's publisher environment from other jobs. They also normalize the setup
+release label and preserve source action annotations. Repository policy, schedules,
+activation gates, image selections, credentials and environment protection remain
+caller-owned. Unexpected source or generated structure fails the command; any raw
+lockfile left by native compilation is unvalidated and must not be committed or
+deployed. Review the generated diff before committing it. This CLI supplies the
+corrections above for compatible consumers; no manual lockfile patch is needed.
 
 ## Standing approval policy
 
