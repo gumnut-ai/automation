@@ -2,6 +2,6 @@
   "name": "@gumnut-ai/automation",
   "private": true,
   "scripts": {
-    "test": "node --test dependency-maintenance/*.test.cjs claude-review/*.test.cjs claude-review/runtime/launcher.test.cjs claude-review/runtime/services.test.cjs claude-review/runtime/summary-server.test.cjs pr-approval/*.test.cjs tests/*.test.cjs"
+    "test": "node --test daemon-delivery/*.test.cjs dependency-maintenance/*.test.cjs claude-review/*.test.cjs claude-review/runtime/launcher.test.cjs claude-review/runtime/services.test.cjs claude-review/runtime/summary-server.test.cjs pr-approval/*.test.cjs tests/*.test.cjs"
   }
 }
