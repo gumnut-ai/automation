@@ -1,0 +1,7 @@
+{
+  "name": "scheduled-care-codex-runtime",
+  "private": true,
+  "dependencies": {
+    "@openai/codex": "0.156.1"
+  }
+}
