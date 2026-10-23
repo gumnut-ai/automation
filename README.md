@@ -89,28 +89,30 @@ executes the selected action once, then reads back the result. Proposal caps,
 review readiness, history, deduplication and work selection remain caller/agent
 policy. Inspect uncertain publication before another run.
 
-For example, a synthetic `fixture/project` caller inserts the following into its
-trusted safe-output job (replace `REVIEWED_FULL_COMMIT_SHA` with a reviewed
-immutable shared commit):
+The [disabled synthetic consumer source](examples/consumer/.github/workflows/dependency-maintenance.md)
+shows the complete native integration: read-only agent permissions and GitHub
+tools, native creation and signed repair outputs, the human handoff script, and
+the pinned shared action in `safe-outputs.steps` after native setup. Its explicit
+`false` gate disables execution; it has no schedule. The publisher environment
+and unset App references are examples only. Keep publisher credentials scoped to
+the protected environment, outside the agent job.
 
-```yaml
-- name: Constrain native dependency delivery
-  uses: gumnut-ai/automation/actions/dependency-delivery@REVIEWED_FULL_COMMIT_SHA
+Compile locally with the pinned v0.89.21 compiler:
+
+```bash
+gh aw compile --dir examples/consumer/.github/workflows --action-tag c35393777e5604a63721d09512263b1383301d4f
 ```
 
-Its native custom safe-output script invokes the trusted module using the native
-handler's `github`, `context` and `item` arguments:
-
-```javascript
-return await require(process.env.DEPENDENCY_MAINTENANCE_TRUSTED + '/delivery.cjs')
-  .handoff({ github, context, item });
-```
-
-This is an integration fragment, not a complete workflow or activation policy.
-A consumer still needs its reviewed native workflow and compiled safe-output
-configuration. Local contract tests establish source compatibility and fixture
-behavior; hosted credential isolation and real publication require separate
-consumer validation.
+The example distributes source only; remove the generated lockfile after local
+validation. A real caller must review and commit its compiled workflow. For
+v0.89.21, add `permission-issues: read` alongside
+`permission-pull-requests: write` in the generated publisher App-token steps:
+native reviewer label checks need Issues read, which that compiler omits. Keep
+this correction in the caller's generation/validation process. Review generated
+permissions, container pins, environment protection, credentials and repository
+policy before any separate activation decision. Local contract tests establish
+source compatibility and fixture behavior; hosted credential isolation and real
+publication require separate consumer validation.
 
 ## Standing approval policy
 

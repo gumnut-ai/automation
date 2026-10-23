@@ -49,3 +49,31 @@ test("CI enables native publisher integration tests against the immutable upstre
   assert.match(action, /AUTOMATION_ROOT: \$\{\{ github.action_path \}\}\/\.\.\/\.\./);
   assert.doesNotMatch(action, /github\.token|secrets\.|inputs\./);
 });
+
+
+test("disabled consumer example wires native publication and trusted human handoff", () => {
+  const source = fs.readFileSync(path.join(root, "examples/consumer/.github/workflows/dependency-maintenance.md"), "utf8");
+  const [agent, publisher] = source.split("safe-outputs:\n");
+  assert.ok(publisher);
+  assert.match(agent, /^if: "false"$/m);
+  assert.match(agent, /workflow_dispatch:/);
+  assert.doesNotMatch(agent, /schedule:|secrets\.|github-app:|environment:|: write/);
+  for (const permission of ["contents", "issues", "pull-requests"])
+    assert.match(agent, new RegExp(`^  ${permission}: read$`, "m"));
+  assert.match(agent, /allowed-repos: \[fixture\/project\]/);
+  assert.match(agent, /allowed: \[get_file_contents, list_pull_requests, pull_request_read\]/);
+  assert.match(source, /--action-tag c35393777e5604a63721d09512263b1383301d4f/);
+  assert.match(publisher, /^  environment: fixture-dependency-publisher$/m);
+  assert.match(publisher, /^    owner: fixture\n    repositories: \[project\]$/m);
+  const [creation, repair] = publisher.split("  push-to-pull-request-branch:\n");
+  assert.match(creation, /create-pull-request:/);
+  assert.match(creation, /branch-prefix: dependency-maintenance\//);
+  assert.match(repair, /signed-commits: true/);
+  assert.match(repair, /fallback-as-pull-request: false/);
+  assert.match(repair, /patch-format: bundle/);
+  assert.match(publisher, /scripts:\n    handoff-dependency-pr:/);
+  for (const input of ["pull_request_number", "head_sha", "reviewer", "action"])
+    assert.match(publisher, new RegExp(`^        ${input}:`, "m"));
+  assert.ok(publisher.includes("require(process.env.DEPENDENCY_MAINTENANCE_TRUSTED + '/delivery.cjs').handoff({ github, context, item })"));
+  assert.match(publisher, /  steps:\n    - name: Constrain native dependency delivery\n      uses: gumnut-ai\/automation\/actions\/dependency-delivery@38e220e56a4a3530acaccad28e278736c0a314b3/);
+});
