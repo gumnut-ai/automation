@@ -7,6 +7,20 @@ checks remain local authorities.
 Inspect open role PRs and trusted review feedback first, then current Dependabot
 and Renovate PRs targeting main. Verify author identity through GitHub metadata.
 
+Keep evidence compact before it enters the conversation. Use native query and
+field filters, paginate relevant reads, and inspect targeted dependency roots.
+Save large audit results locally and return selected package/version/advisory,
+fix and release-date fields with coverage and errors; expand descriptions only
+for candidates that need them. Avoid dumping whole lockfiles, generated workflows
+or repeated full advisory lists. Summarization must preserve blockers and unknowns.
+
+Discover capabilities from the installed, repository-pinned tools and their help
+before declaring a scanner or resolver unavailable; for example, check `uv audit`
+when uv is installed. Use supported native audits when GitHub advisory records
+are unavailable. Prepare missing approved tools inside the sandbox when allowed
+by repository instructions and network policy, verify their pinned versions, and
+keep blocked evidence scoped to the affected claim rather than unrelated work.
+
 Prioritize critical security exposure, actionable feedback on existing role PRs,
 repairable bot PRs, then useful uncovered updates. Consider age and benefit;
 leave a permanently blocked PR for a relevant evidence change. Diagnose CI
