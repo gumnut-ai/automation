@@ -7,6 +7,16 @@ checks remain local authorities.
 Inspect open role PRs and trusted review feedback first, then current Dependabot
 and Renovate PRs targeting main. Verify author identity through GitHub metadata.
 
+Select a human reviewer candidate from recent, substantive merged contributions
+to the changed files, widening to the owning area when needed. Resolve the
+GitHub login from that evidence; exclude the PR author and automation accounts.
+Contribution history establishes suitability, not repository permissions. The
+isolated handoff verifies the live human account and repository write access
+before acting; collaborator enumeration is not a prerequisite. A filtered
+collaborator response means unavailable evidence, not no eligible humans.
+If no suitable candidate is found or the handoff fails, report the incomplete
+handoff without claiming assignment or review delivery.
+
 Keep evidence compact before it enters the conversation. Use native query and
 field filters, paginate relevant reads, and inspect targeted dependency roots.
 Save large audit results locally and return selected package/version/advisory,
