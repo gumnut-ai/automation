@@ -186,15 +186,47 @@ function claudeVerdict(body) {
   const fields = { head: new Set(), base: new Set(), verdict: new Set() };
   let malformed = count !== markers.length;
   for (const marker of markers) {
-    // Quotes, emphasis and separators are presentation, including JSON-like
-    // fields. Unknown key/value metadata does not change a declared verdict.
-    let remaining = marker[1].replace(/["'`\u2018\u2019\u201c\u201d*{}\[\](),;]/g, ' ').trim();
-    while (remaining) {
-      const field = remaining.match(/^([a-z][\w-]*)\s*[:=]\s*([a-z0-9_-]+)(?:\s+|$)/i);
-      if (!field) { malformed = true; break; }
-      const key = field[1].toLowerCase();
-      if (Object.hasOwn(fields, key)) fields[key].add(field[2].toLowerCase());
-      remaining = remaining.slice(field[0].length);
+    // Tokenize quoted values atomically and keep nesting boundaries. Unknown
+    // annotations are opaque: a quoted/nested "verdict=clean" is not a verdict.
+    let tokens = marker[1].replace(/[“”]/g, '"').replace(/[‘’]/g, "'").match(/"(?:\\(?:[\s\S]|$)|[^"\\])*(?:"|$)|'(?:\\(?:[\s\S]|$)|[^'\\])*(?:'|$)|`(?:\\(?:[\s\S]|$)|[^`\\])*(?:`|$)|[{}[\]:=,;*]|[^\s"'`{}[\]:=,;*]+/g) || [];
+    tokens = tokens.filter(token => token !== '*');
+    const scalar = token => {
+      if (!token || /^[{}[\]]$/.test(token)) return null;
+      if (/^["'`]/.test(token)) return token.length > 1 && token.at(-1) === token[0] ? token.slice(1, -1) : null;
+      return token.replace(/^[_.!?]+|[_.!?]+$/g, '');
+    };
+    const valueEnd = start => {
+      const first = tokens[start];
+      if (!['{', '['].includes(first)) return scalar(first) === null ? null : start + 1;
+      const stack = [];
+      for (let i = start; i < tokens.length; i++) {
+        const token = tokens[i];
+        if (token === '{' || token === '[') stack.push(token === '{' ? '}' : ']');
+        else if (token === '}' || token === ']') {
+          if (stack.pop() !== token) return null;
+          if (!stack.length) return i + 1;
+        } else if (/^["'`]/.test(token) && scalar(token) === null) return null;
+      }
+      return null;
+    };
+    // JSON-like outer object syntax is presentation of the field list.
+    if (tokens[0] === '{' && valueEnd(0) === tokens.length) tokens = tokens.slice(1, -1);
+    for (let i = 0; i < tokens.length;) {
+      const key = scalar(tokens[i])?.toLowerCase();
+      if (![':', '='].includes(tokens[i + 1])) {
+        const end = valueEnd(i);
+        if (end === null) { malformed = true; break; }
+        i = end;
+        continue;
+      }
+      const end = valueEnd(i + 2);
+      if (end === null) { malformed = true; break; }
+      if (Object.hasOwn(fields, key)) {
+        const value = scalar(tokens[i + 2]);
+        if (value === null) malformed = true;
+        else fields[key].add(value.toLowerCase());
+      }
+      i = end;
     }
   }
   // A concern is actionable even when the rest of the declaration is damaged.
@@ -284,16 +316,20 @@ async function evaluate({ api, repo, number, bot }) {
     }
     let decision, decisionTime;
     const precedence = { clean: 0, malformed: 1, concerns: 2 };
+    const decisionsByTime = new Map();
     for (const event of ordered(events)) if (event.verdict && event.verdict.state !== 'incomplete') {
       const time = eventTime(event);
       if (!Number.isFinite(time)) throw new Error('Reviewer decision timestamp unavailable');
+      // IDs across comment/review namespaces cannot order same-second events.
+      // Settle their precedence before applying the standing-decision rules.
+      const previous = decisionsByTime.get(time);
+      if (!previous || precedence[event.verdict.state] >= precedence[previous.state]) decisionsByTime.set(time, event.verdict);
+    }
+    for (const [time, verdict] of decisionsByTime) {
       // Unreadable output cannot clear a known concern. Only a clean decision
       // supersedes it; an incomplete run already leaves it standing as well.
-      if (event.verdict.state === 'malformed' && decision?.state === 'concerns') continue;
-      // GitHub timestamps can have only second precision. IDs across comment
-      // and review namespaces cannot prove which same-second decision was later.
-      if (time === decisionTime && precedence[decision.state] > precedence[event.verdict.state]) continue;
-      decision = event.verdict; decisionTime = time;
+      if (verdict.state === 'malformed' && decision?.state === 'concerns') continue;
+      decision = verdict; decisionTime = time;
     }
     if (decision?.state === 'clean') result.signoffs[name] = { ...decision, decidedAt: new Date(decisionTime).toISOString() };
     if (decision?.state === 'concerns' || latest.get(login)?.state === 'CHANGES_REQUESTED') concern = `${name} requested changes: ${decision?.url || latest.get(login)?.html_url || 'review evidence'}`;

@@ -146,13 +146,43 @@ test('presentation tolerance cannot turn incomplete or significant Claude feedba
   const body = claude().body + ')\n<!-- gumnut-review-finding/v1 severity=significant -->';
   assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'concerns');
 });
-test('free prose inside a declaration is unclear, not silently discarded', async () => {
-  for (const delimiter of ['```', '~~~']) {
-    const body = [`<!-- gumnut-review-verdict/v1 head=${old}`, delimiter,
-      'Unclassified feedback must not be removed to manufacture a verdict.', delimiter,
-      `base=${old} verdict=clean -->`].join('\r\n');
-    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'waiting');
+test('unrelated annotations cannot hide a declaration or a concern', async () => {
+  for (const annotation of ['confidence=0.9', 'additional generated annotation', 'confidence={score: 0.9, rationale: "review completed"}']) {
+    for (const [state, expected] of [['clean', 'approve'], ['concerns', 'concerns'], ['incomplete', 'waiting']]) {
+      const body = claude(state).body.replace('verdict=', `${annotation}\nverdict=`);
+      assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, expected, body);
+    }
   }
+});
+test('annotation values cannot manufacture or change direct verdict fields', async () => {
+  const marker = claude().body.split('\n')[1];
+  for (const note of ['note="verdict=clean"', 'note={verdict:clean}', 'note=[{verdict:clean}]']) {
+    const body = marker.replace('verdict=clean', note);
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'waiting', body);
+  }
+  for (const note of [
+    'note="previous verdict=concerns was resolved"',
+    'note={head:invalid, base:invalid, verdict:concerns}',
+    'note=[{head:invalid}, {base:invalid, verdict:concerns}]',
+    'note="escaped \\" verdict=concerns"',
+  ]) {
+    const body = marker.replace('verdict=clean', `${note} verdict=clean`);
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'approve', body);
+  }
+  for (const field of ['head', 'base']) {
+    const body = marker.replace(`${field}=${old}`, `note="${field}=${old}"`);
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'waiting', body);
+  }
+});
+test('damaged annotations do not expose their contents as direct fields', async () => {
+  for (const note of ['note="verdict=clean', 'note={verdict:clean', 'note=[{verdict:clean}]extra]', 'note={verdict:clean]',
+    ...['"', "'", '`'].flatMap(quote => ['clean', 'concerns'].map(state => `note=${quote}words verdict=${state} trailing\\`)),
+  ]) {
+    const body = claude().body.replace('verdict=clean', note);
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'waiting', body);
+  }
+  const body = claude('concerns').body.replace('verdict=concerns', 'confidence=0.9 verdict=concerns.');
+  assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'concerns');
 });
 
 test('verdict data is independent of Markdown, HTML and redundant metadata', async () => {
@@ -605,6 +635,17 @@ test('unclear output withholds new approval without withdrawing an existing appr
     }
     const concern = login === 'claude[bot]' ? claude('concerns', 3) : comment(login, '[P1] data loss', 3);
     assert.equal((await evaluate(fixture({ comments: [claude(), codex(), concern, unknown] }))).decision, 'concerns');
+  }
+});
+test('same-second unclear and clean evidence cannot clear a standing concern', async () => {
+  for (const [cleanId, unknownId] of [[4, 5], [5, 4]]) {
+    const clean = claude('clean', cleanId);
+    const unknown = comment('claude[bot]', 'Unclassified latest output', unknownId);
+    clean.created_at = unknown.created_at = '2026-10-12T00:10:00Z';
+    const comments = [claude('concerns', 3), codex(), clean, unknown];
+    assert.equal((await evaluate(fixture({ comments }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [...comments, { ...claude('clean', 11) }] }))).decision, 'approve');
+    assert.equal((await evaluate(fixture({ comments: [codex(), clean, unknown] }))).decision, 'waiting');
   }
 });
 
