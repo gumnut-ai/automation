@@ -192,8 +192,9 @@ the caller's publisher environment from other jobs. They also normalize the setu
 release label and preserve source action annotations. The compiler also preserves the native repair baseline through output collection,
 gives the custom handoff script transport capacity of 100 and propagates native
 collection errors to the agent result before publication. Callers set native
-creation, repair and reviewer transport capacities to 100: omitting those values
-restores native one-item defaults. These ceilings do not enforce the agent's
+creation and repair capacities to the compiler-supported maximum of 10, and
+reviewer transport capacity to 100. Omitting capacities restores smaller native
+defaults. These ceilings do not enforce the agent's
 one-proposal or handoff policy. Work caps, readiness and deduplication remain
 agent instructions. The original
 native repair tool still captures the baseline, and the publisher still rejects

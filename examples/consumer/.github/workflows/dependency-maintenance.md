@@ -40,7 +40,7 @@ safe-outputs:
     owner: fixture
     repositories: [project]
   create-pull-request:
-    max: 100
+    max: 10
     base-branch: main
     branch-prefix: dependency-maintenance/
     allowed-branches: ["dependency-maintenance/*"]
@@ -51,7 +51,7 @@ safe-outputs:
       policy: blocked
       exclude: [package.json, package-lock.json]
   push-to-pull-request-branch:
-    max: 100
+    max: 10
     target: "*"
     signed-commits: true
     fallback-as-pull-request: false

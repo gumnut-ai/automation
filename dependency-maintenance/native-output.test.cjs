@@ -9,7 +9,7 @@ const { correctOutputTransport } = require("./compile.cjs");
 
 const actions = process.env.GH_AW_SETUP_DIR || process.env.GH_AW_ACTIONS_DIR;
 function collectNative(root, items, corrected = true) {
-  const config = { push_to_pull_request_branch: { max: 100 }, handoff_dependency_pr: { inputs: {
+  const config = { push_to_pull_request_branch: { max: 10 }, handoff_dependency_pr: { inputs: {
     action: { type: 'string', required: true }, pull_request_number: { type: 'number', required: true },
     head_sha: { type: 'string', required: true }, reviewer: { type: 'string', required: true },
   } } };
