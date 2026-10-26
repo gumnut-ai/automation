@@ -47,6 +47,11 @@ activates review). OAuth is the supported inference credential. It also owns
 permissions, policy, required CI, review requirements, schedules and the standing
 approval App. Keep review disabled until those are deliberately configured.
 
+Runtime preparation reports the exact trusted service image pin when a pull
+fails or times out. The execution check receives the fixed preparation failure
+category even when inference never starts; Docker stderr and credentials remain
+withheld. A failed preparation does not count as a completed review.
+
 For standing approval, start with `PR_APPROVAL_MODE=shadow` and the exact
 `PR_APPROVAL_BOT_LOGIN`. Assessment independently reads reviewer evidence and CI;
 it does not itself review code. An execution check alone is not a sign-off.
@@ -85,13 +90,33 @@ Dependency delivery uses this same canonical account-exclusion helper.
 The `validate-proposal` input defaults to `false`, preserving patch-only callers.
 With `true`, the caller must supply `GH_AW_AGENT_OUTPUT` through the step's
 environment. Before patching, validation requires a clean native output envelope
-containing one PR proposal and at most one human reviewer request targeting that
-proposal's temporary ID in the same repository. A proposal without a reviewer
-remains valid. Both modes constrain reviewer delivery to the current activation's
-resolved same-repository PR and exactly one eligible human, without team reviewers.
+with unambiguous proposal temporary IDs and human reviewer requests bound to those
+proposals in the same repository. Proposals without reviewers remain valid.
+Both modes constrain reviewer delivery to the current activation's resolved
+same-repository PRs and eligible humans, without team reviewers. Proposal and
+reviewer counts remain agent policy.
 Configure native `add-reviewer.target: '*'`; fixed or triggering targets are
 rejected because they override the published PR number. Reviewer logins must be
 canonical GitHub usernames, without surrounding whitespace.
+
+Callers with repository-specific write boundaries run the captured-artifact security
+preflight in `safe-outputs.steps` after this action and before Process Safe Outputs:
+`node "$DAEMON_DELIVERY_TRUSTED/native-transport.cjs" -- node "$GITHUB_WORKSPACE/.github/maintainer/validate-patch.cjs"`.
+Run from the trusted dispatch checkout with `GH_AW_AGENT_OUTPUT` pointing to the
+collected native JSON envelope, plus `GITHUB_REPOSITORY`, `GITHUB_SHA` and
+`RUNNER_TEMP`. The absolute validator must come from that trusted checkout. A fixed trusted
+Python validator is also supported with `-- python3 /absolute/validator.py [args...]`;
+the command and arguments must be workflow literals or trusted dispatch metadata,
+never agent output. Use the validator for the workflow's admitted role.
+The preflight reconstructs every captured creation in a separate disposable Git
+repository, checks the captured source ancestry and repository identity, and runs
+that original validator with `GITHUB_SHA` set to the captured base. It accepts
+creation, bound reviewer and native signal outputs only; unexpected mutations or
+missing, malformed, stale or changing artifacts fail before publication. Patch
+artifacts must embed the exact captured source base through the native header. Candidate
+hooks and scripts are never executed; Git configuration and child credentials are
+isolated. The validator may use `python3` from the runner PATH. Proposal and
+reviewer counts, readiness and review policy stay with callers and agents.
 
 Callers retain publisher authentication, permissions, admission, native safe-output
 limits, work selection, review readiness, history, deduplication and delivery
@@ -183,7 +208,18 @@ native compiler applies those scopes to admission. The shared compiler verifies
 the source declaration and generated read scopes. Its corrections pin detector
 images to the source digests, add Issues read to both publisher tokens, and remove
 the caller's publisher environment from other jobs. They also normalize the setup
-release label and preserve source action annotations. Repository policy, schedules,
+release label and preserve source action annotations. The compiler also preserves the native repair baseline through output collection,
+gives the custom handoff script transport capacity of 100 and propagates native
+collection errors to the agent result before publication. Callers set native
+creation and repair capacities to the compiler-supported maximum of 10, and
+reviewer transport capacity to 100. Omitting capacities restores smaller native
+defaults. These ceilings do not enforce the agent's
+one-proposal or handoff policy. Work caps, readiness and deduplication remain
+agent instructions. The original
+native repair tool still captures the baseline, and the publisher still rejects
+stale heads through signed compare-and-swap.
+
+Repository policy, schedules,
 activation gates, image selections, credentials and environment protection remain
 caller-owned. Unexpected source or generated structure fails the command; any raw
 lockfile left by native compilation is unvalidated and must not be committed or

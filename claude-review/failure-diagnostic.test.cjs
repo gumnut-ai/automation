@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { failureCategory, isFailureCategory } = require('./failure-diagnostic.cjs');
+const { failureCategory, isFailureCategory, recordPreparationFailure } = require('./failure-diagnostic.cjs');
 
 test('reports SDK categories even when the result says success with is_error', () => {
   assert.equal(failureCategory([
@@ -48,4 +48,23 @@ test('CLI withholds transcript secrets and parse errors and handles missing outp
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+test('pre-inference image failures reach the execution diagnostic with no raw process text', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-preparation-'));
+  const output = path.join(dir, 'output');
+  const run = () => execFileSync(process.execPath, [path.join(__dirname, 'failure-diagnostic.cjs')], {
+    env: { ...process.env, RUNNER_TEMP: dir, GITHUB_OUTPUT: output }, encoding: 'utf8',
+  });
+  try {
+    for (const category of ['image_pull_failed', 'image_pull_timeout']) {
+      recordPreparationFailure(category, { RUNNER_TEMP: dir });
+      assert.ok(isFailureCategory(category));
+      assert.equal(run(), `::notice::Claude review failure category: ${category}. Raw execution output withheld.\n`);
+    }
+    fs.writeFileSync(path.join(dir, 'claude-preparation-failure.json'), JSON.stringify({ category: 'SECRET\n::error::injection' }));
+    assert.match(run(), /category: diagnostic_unavailable\./);
+    assert.ok(!fs.readFileSync(output, 'utf8').includes('SECRET'));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

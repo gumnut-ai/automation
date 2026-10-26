@@ -56,4 +56,4 @@ runs:
       run: |
         review_image="$(node -p 'require(process.env.AUTOMATION_ROOT + "/claude-review/runtime/image.cjs")')"
         docker build --tag "$review_image" "$AUTOMATION_ROOT/claude-review/runtime"
-        node -e 'require(process.env.AUTOMATION_ROOT + "/claude-review/runtime/services.cjs").prepareImages().catch(() => process.exit(1))'
+        node "$AUTOMATION_ROOT/claude-review/runtime/services.cjs"

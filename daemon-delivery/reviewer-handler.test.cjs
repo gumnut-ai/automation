@@ -115,3 +115,13 @@ nativeTest("complete helper drift with intact anchors fails before either write"
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
 });
+
+nativeTest("native reviewer accepts multiple eligible humans and repeated handoffs", async () => {
+  const f = fixture();
+  const handler = await wrapReviewer(main)({ max: 10, target: "*" });
+  for (const reviewers of [["reviewer", "maintainer"], ["other"]]) {
+    const result = await handler({ ...f.message, reviewers }, f.map);
+    assert.equal(result.success, true, result.error);
+  }
+  assert.deepEqual(f.calls.map(call => call.reviewers), [["reviewer", "maintainer"], ["other"]]);
+});

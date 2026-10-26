@@ -25,23 +25,22 @@ function nativeFiles(dir) {
     fs.readFileSync(path.join(dir, name), "utf8"));
 }
 function invalidOutputs() {
-  const result = [{}, { errors: [], items: [] }, { errors: [], items: [null] }];
-  for (const type of ["noop", "report_incomplete", "missing_tool", "missing_data"])
-    result.push({ errors: [], items: [...output().items, { type }] });
+  const result = [{}, { errors: [], items: [null] },
+    { errors: [], items: [...output().items, { type: "add_comment" }] }];
   for (const mutate of [
     x => x.errors = ["Line 3: Unexpected output type 'report_incomplete'"],
     x => x.errors = ["Line 3: Too many items of type 'create_pull_request'"],
     x => x.errors = "invalid error envelope",
     x => delete x.errors,
     x => x.items.push(x.items[0]),
-    x => x.items.push(x.items[1]),
+    x => x.items.push({ ...x.items[0], temporary_id: "#AW_Proposal" }),
     x => delete x.items[0].temporary_id,
     x => x.items[1].pull_request_number = 7,
     x => x.items[1].pull_request_number = "aw_other",
     x => x.items[1].repo = "other/repo",
     x => x.items[0].repo = "other/repo",
     x => x.items[1].reviewers = [],
-    x => x.items[1].reviewers = ["maintainer", "other"],
+    x => x.items[1].reviewers = ["maintainer", "copilot"],
     x => x.items[1].reviewers = ["CharlieHelps"],
     x => x.items[1].reviewers = ["someone[BoT]"],
     x => x.items[1].reviewers = ["not/a/login"],
@@ -140,4 +139,53 @@ nativeTest("reviewer-selection failure preserves the useful native proposal", as
   }]]), declaration.items);
   assert.equal(writes, 1);
   assert(result.results.every(item => item.success));
+});
+
+test("preflight leaves native non-delivery signals and empty output to the agent", () => {
+  validateProposal({ errors: [], items: [] }, "owner/repo");
+  for (const type of ["noop", "report_incomplete", "missing_tool", "missing_data"]) {
+    validateProposal({ errors: [], items: [{ type }] }, "owner/repo");
+    validateProposal({ errors: [], items: [...output().items, { type }] }, "owner/repo");
+  }
+});
+
+nativeTest("multiple proposals and human handoffs use each newly created PR through native ordering", async t => {
+  global.core = { info() {}, warning() {}, error() {}, debug() {} };
+  global.context = { eventName: "schedule", repo: { owner: "owner", repo: "repo" }, payload: {} };
+  for (const reversed of [false, true]) {
+    const dir = helpers(t), calls = [];
+    global.github = { rest: {
+      pulls: {
+        get: async () => ({ data: { requested_reviewers: [], requested_teams: [] } }),
+        listReviews: async () => ({ data: [] }),
+        requestReviewers: async args => {
+          calls.push(args);
+          return { data: { requested_reviewers: args.reviewers.map(login => ({ login })) } };
+        },
+      },
+    } };
+    const declaration = { errors: [], items: [
+      { type: "add_reviewer", pull_request_number: "#AW_Second", reviewers: ["second", "third"] },
+      { type: "create_pull_request", temporary_id: "aw_first" },
+      { type: "add_reviewer", pull_request_number: "aw_first", reviewers: ["first"] },
+      { type: "create_pull_request", temporary_id: "aw_second" },
+      { type: "add_reviewer", pull_request_number: "aw_first", reviewers: ["fourth"] },
+    ] };
+    if (reversed) declaration.items.reverse();
+    prepare(dir, { validateProposal: true, output: declaration, repository: "owner/repo" });
+    const { processMessages } = require(path.join(dir, "safe_output_handler_manager.cjs"));
+    const handler = await require(path.join(dir, "add_reviewer.cjs")).main({ target: "*", max: 10 });
+    const result = await processMessages(new Map([
+      ["create_pull_request", async message => ({ success: true, number: message.temporary_id === "aw_first" ? 7 : 8,
+        repo: "owner/repo", temporaryId: message.temporary_id })],
+      ["add_reviewer", handler],
+    ]), declaration.items);
+    assert(result.results.every(item => item.success), JSON.stringify(result.results));
+    assert.equal(calls.length, 3);
+    assert.deepEqual(calls.find(call => call.reviewers.includes("second")), {
+      owner: "owner", repo: "repo", pull_number: 8, reviewers: ["second", "third"],
+    });
+    for (const login of ["first", "fourth"])
+      assert.equal(calls.find(call => call.reviewers.includes(login)).pull_number, 7);
+  }
 });

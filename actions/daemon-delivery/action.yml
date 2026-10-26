@@ -2,7 +2,7 @@ name: Native daemon human review handoff
 description: Resolve fresh PR reviewer targets through pinned native gh-aw delivery.
 inputs:
   validate-proposal:
-    description: Validate one native PR proposal and its optional human reviewer before patching.
+    description: Validate native proposal identities and bound human reviewer targets before patching.
     required: false
     default: 'false'
 outputs:
@@ -22,7 +22,7 @@ runs:
       run: | # zizmor: ignore[github-env]
         set -euo pipefail
         trusted="$(mktemp -d "$RUNNER_TEMP/daemon-delivery-trusted.XXXXXX")"
-        cp "$AUTOMATION_ROOT/daemon-delivery/"{prepare-reviewer-handler,reviewer-handler,human-reviewer}.cjs "$trusted/"
+        cp "$AUTOMATION_ROOT/daemon-delivery/"{prepare-reviewer-handler,reviewer-handler,human-reviewer,native-transport}.cjs "$trusted/"
         node "$trusted/prepare-reviewer-handler.cjs"
         printf 'DAEMON_DELIVERY_TRUSTED=%s\n' "$trusted" >> "$GITHUB_ENV"
         printf 'trusted-directory=%s\n' "$trusted" >> "$GITHUB_OUTPUT"

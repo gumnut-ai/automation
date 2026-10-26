@@ -31,6 +31,18 @@ are unavailable. Prepare missing approved tools inside the sandbox when allowed
 by repository instructions and network policy, verify their pinned versions, and
 keep blocked evidence scoped to the affected claim rather than unrelated work.
 
+Deliver one useful bounded update when its own evidence and required checks are
+complete. An unavailable audit for another root, an unrelated advisory, or a
+separate blocked PR does not prevent that delivery. Record those scoped gaps and
+deferrals in the proposal body or handoff context without claiming complete
+coverage. Do not emit a no-op or incomplete signal alongside a successful delivery
+intent; those signals describe an activation with no deliverable, rather than a
+requirement to finish every possible investigation before publishing. If the
+selected patch's own required evidence or checks are unavailable, do not publish
+it. When no useful work can be delivered because investigation is blocked or
+unfinished, use native report_incomplete; reserve noop for completed discovery
+that found no useful action. Never turn a failed check into a no-op.
+
 Prioritize critical security exposure, actionable feedback on existing role PRs,
 repairable bot PRs, then useful uncovered updates. Consider age and benefit;
 leave a permanently blocked PR for a relevant evidence change. Diagnose CI

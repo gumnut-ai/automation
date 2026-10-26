@@ -9,6 +9,7 @@ const categories = new Set([
   'rate_limit', 'overloaded', 'invalid_request', 'model_not_found',
   'server_error', 'unknown', 'max_output_tokens',
 ]);
+const preparationFailures = new Set(['image_pull_failed', 'image_pull_timeout']);
 const resultFailures = new Set([
   'error_during_execution', 'error_max_turns', 'error_max_budget_usd',
   'error_max_structured_output_retries',
@@ -24,7 +25,13 @@ function failureCategory(messages) {
 
 // Every value failureCategory can return; consumers accept nothing else.
 function isFailureCategory(value) {
-  return value === 'diagnostic_unavailable' || categories.has(value) || resultFailures.has(value);
+  return value === 'diagnostic_unavailable' || categories.has(value) || resultFailures.has(value) || preparationFailures.has(value);
+}
+
+function recordPreparationFailure(category, env = process.env) {
+  if (env.RUNNER_TEMP && preparationFailures.has(category)) {
+    fs.writeFileSync(path.join(env.RUNNER_TEMP, 'claude-preparation-failure.json'), JSON.stringify({ category }));
+  }
 }
 
 if (require.main === module) {
@@ -37,8 +44,17 @@ if (require.main === module) {
   } catch {
     // The action may fail before saving its SDK output. Preserve its failure.
   }
+  try {
+    const file = path.join(process.env.RUNNER_TEMP, 'claude-preparation-failure.json');
+    if (fs.statSync(file).size <= 1024) {
+      const preparation = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (preparationFailures.has(preparation?.category)) category = preparation.category;
+    }
+  } catch {
+    // Preparation may not have started or produced a receipt.
+  }
   console.log(`::notice::Claude review failure category: ${category}. Raw execution output withheld.`);
   if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `category=${category}\n`);
 }
 
-module.exports = { failureCategory, isFailureCategory };
+module.exports = { failureCategory, isFailureCategory, recordPreparationFailure };

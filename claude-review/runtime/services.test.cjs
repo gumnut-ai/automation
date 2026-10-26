@@ -228,3 +228,37 @@ test('ambiguous gateway attachment cleans up every discovered session backend', 
   await assert.rejects(startServices(f.options, f.dependencies), /acknowledgement lost/);
   assert.deepEqual([...resources], []);
 });
+
+
+test('image failure identifies only the trusted pin and stops preparation without leaking Docker output', async () => {
+  for (const failedImage of [MODEL_IMAGE, GATEWAY_IMAGE, GITHUB_IMAGE, BUN_IMAGE]) {
+    for (const timedOut of [false, true]) {
+      const pulled = [];
+      await assert.rejects(prepareImages({ docker: async args => {
+        pulled.push(args[1]);
+        if (args[1] === failedImage) throw Object.assign(new Error('SECRET\n::error::injection'), { timedOut });
+      } }), error => {
+        assert.equal(error.message, `Pinned review service image pull ${timedOut ? 'timed out' : 'failed'}: ${failedImage}`);
+        assert.equal(error.category, timedOut ? 'image_pull_timeout' : 'image_pull_failed');
+        assert.ok(!String(error).includes('SECRET'));
+        return true;
+      });
+      assert.equal(pulled.at(-1), failedImage);
+    }
+  }
+});
+
+
+test('preparation CLI exits unsuccessfully with a safe image diagnostic and receipt', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'review-prepare-cli-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.writeFile(path.join(dir, 'docker'), '#!/bin/sh\nprintf "SECRET\\n::error::injection" >&2\nexit 1\n', { mode: 0o755 });
+  const { spawnSync } = require('node:child_process');
+  const result = spawnSync(process.execPath, [path.join(__dirname, 'services.cjs')], {
+    env: { PATH: dir + ':/usr/bin:/bin', RUNNER_TEMP: dir }, encoding: 'utf8',
+  });
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, `::error::Pinned review service image pull failed: ${MODEL_IMAGE}\n`);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir, 'claude-preparation-failure.json'), 'utf8')), { category: 'image_pull_failed' });
+  assert.ok(!result.stderr.includes('SECRET'));
+});
