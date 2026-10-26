@@ -281,6 +281,13 @@ publication gate does not change the approval's lifetime.
 
 ## Updates and rollback
 
+GH-AW integrations must use supported configuration and documented extension
+points. Existing compiler/runtime corrections are migration debt: do not extend
+them or add new private-helper dependencies. An unsupported necessary boundary
+requires a platform decision, rather than another patch or a weaker boundary.
+See the [native platform assessment](native-toolchain/assessment/README.md) for
+the release-age check, reproducible probes and current limitations.
+
 A shared change does not update consumers. Review its diff, run validation, then
 update all shared pins in one consumer PR. Keep policy, gates and environment
 protection local. Preserve existing activation gates and modes during migration.
