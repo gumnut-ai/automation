@@ -180,7 +180,7 @@ function claudeVerdict(body) {
   // These are authenticated reviewer declarations, not executable instructions.
   // Read their data independently of the surrounding Markdown/HTML presentation.
   // Repetition is harmless when it agrees; conflicting decisions are not clean.
-  const count = (body.match(/gumnut-review-verdict\//gi) || []).length;
+  const count = (body.match(/<!--\s*gumnut-review-verdict\//gi) || []).length;
   if (!count) return null;
   const markers = [...body.matchAll(/<!--\s*gumnut-review-verdict\/v1\s+([\s\S]*?)-->/gi)];
   const fields = { head: new Set(), base: new Set(), verdict: new Set() };
@@ -263,10 +263,7 @@ async function evaluate({ api, repo, number, bot }) {
     const events = comments.filter(c => c.user?.login === login && c.user?.type === 'Bot').map(c => ({ ...c, verdict: commentDecision(c, login) }));
     for (const review of reviews.filter(r => r.user?.login === login && r.user?.type === 'Bot')) {
       if (review.state === 'APPROVED') {
-        const bodyDecision = commentDecision(review, login, 'review');
-        // GitHub's formal disposition is already structured reviewer intent.
-        // Optional prose need not reproduce a second machine-readable signoff.
-        const verdict = bodyDecision && ['concerns', 'incomplete'].includes(bodyDecision.state) ? bodyDecision : { state: 'clean', url: review.html_url, commit: review.commit_id, kind: 'review' };
+        const verdict = commentDecision(review, login, 'review') || { state: 'clean', url: review.html_url, commit: review.commit_id, kind: 'review' };
         events.push({ ...review, decision_at: verdict.state === 'clean' ? review.submitted_at : review.decision_at, verdict });
       }
       if (review.state === 'CHANGES_REQUESTED') events.push({ ...review, decision_at: review.submitted_at, verdict: { state: 'concerns', url: review.html_url, commit: review.commit_id, kind: 'review' } });

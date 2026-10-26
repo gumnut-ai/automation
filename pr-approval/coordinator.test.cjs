@@ -161,6 +161,7 @@ test('verdict data is independent of Markdown, HTML and redundant metadata', asy
     m => m + '"', m => `“${m}”`, m => `> ${m}`, m => `    ${m}`,
     m => '`' + m + '`', m => '```html\n' + m + '\n```',
     m => `[${m}]()`, m => `<span>${m}</span>`, m => `Result: ${m} Done.`,
+    m => `This summary mentions gumnut-review-verdict/v1.\n${m}`,
     m => m + '\n' + m.toUpperCase(),
     m => m.replace('verdict=clean', 'verdict=clean VERDICT=clean extra=ignored constructor=ignored'),
     m => m.replace(/(head|base|verdict)=([a-z0-9]+)/g, '"$1": "$2",'),
@@ -375,14 +376,14 @@ test('formal P3-only Codex review signs off without treating activity or unrelat
   const badge = options([claude()]);badge.threads[0].comments.nodes = [finding('**<sub><sub>![P3 Badge](https://img.shields.io/badge/P3-blue?style=flat)</sub></sub> Optional improvement**')];
   assert.equal((await evaluate(fixture(badge))).decision, 'approve');
 });
-test('formal approvals are explicit intent without requiring a second textual protocol', async () => {
+test('formal approval bodies still withhold new approval for significant or unclear feedback', async () => {
   for (const login of ['claude[bot]', 'chatgpt-codex-connector[bot]']) {
-    for (const body of ['LGTM!', 'Review finished successfully.', '✅ Approved after reviewing the change.']) {
-      const approved = { ...review(login, 'APPROVED', 4), body };
-      assert.equal((await evaluate(fixture({ comments: login === 'claude[bot]' ? [codex()] : [claude()], reviews: [approved] }))).decision, 'approve');
+    for (const [body, expected] of [
+      ['A consequential regression remains.', 'waiting'],
+      [login === 'claude[bot]' ? '<!-- gumnut-review-finding/v1 severity=significant -->' : '[P1] data loss', 'concerns'],
+    ]) {
+      assert.equal((await evaluate(fixture({ reviews: [{ ...review(login, 'APPROVED', 4), body }] }))).decision, expected);
     }
-    const body = login === 'claude[bot]' ? '<!-- gumnut-review-finding/v1 severity=significant -->' : '[P1] data loss';
-    assert.equal((await evaluate(fixture({ reviews: [{ ...review(login, 'APPROVED', 4), body }] }))).decision, 'concerns');
   }
 });
 

@@ -226,10 +226,9 @@ valid head/base revisions; conflicting declarations cannot establish approval.
 A declared concern or significant finding takes precedence over clean output.
 The canonical example format remains recommended, rather than required verbatim.
 
-An authenticated formal GitHub approval is itself a sign-off; its optional body
-does not need to restate a textual protocol. Explicit concerns in that body still
-block. Unreadable or ambiguous feedback withholds a new coordinator approval but
-does not create a request for changes or withdraw an existing standing approval.
+Unreadable or ambiguous feedback, including an unclassified formal approval body,
+withholds a new coordinator approval but does not create a request for changes or
+withdraw an existing standing approval.
 It also cannot clear a known concern. A later clear sign-off can settle unclear
 summary output; unresolved significant or unclassified inline findings continue
 to withhold new approval. Identity, PR eligibility, human dismissals, complete
