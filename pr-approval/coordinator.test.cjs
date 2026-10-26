@@ -288,6 +288,16 @@ test('structured Claude verdicts distinguish resolved history from current conce
   concern.body = 'The earlier finding that should be fixed before merge is resolved, but a new concern remains.\n' + concern.body;
   assert.equal((await evaluate(fixture({ comments: [concern, codex()] }))).decision, 'concerns');
 });
+test('summary verdict precedence does not depend on prose placement', async () => {
+  for (const separator of [' ', '\n']) {
+    for (const prose of ['Should be fixed before merge.', 'The earlier concern is now resolved.']) {
+      const body = claude().body + separator + prose;
+      assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'approve');
+      const significant = body + '\n<!-- gumnut-review-finding/v1 severity=significant -->';
+      assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', significant), codex()] }))).decision, 'concerns');
+    }
+  }
+});
 test('significant concerns cannot be hidden by clean or incomplete wrappers', async () => {
   for (const source of [claude(), claude('incomplete'), codex()]) {
     source.body += source.user.login === 'claude[bot]' ? '\n<!-- gumnut-review-finding/v1 severity=significant -->' : '\n[P1] A remaining concern';

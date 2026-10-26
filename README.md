@@ -223,7 +223,10 @@ HTML, quotes, code fences or prose. Field order, capitalization, quoted values,
 colon/equal separators, extra key/value metadata and agreeing repetitions are
 accepted. A clean declaration still needs a recognized verdict and consistent,
 valid head/base revisions; conflicting declarations cannot establish approval.
-A declared concern or significant finding takes precedence over clean output.
+A valid Claude verdict is authoritative for surrounding summary prose. Explicit
+concern declarations and significant-finding markers take precedence over clean
+output. A mistaken clean verdict accompanied only by contradictory summary prose
+can therefore approve; the coordinator does not semantically re-review the text.
 The canonical example format remains recommended, rather than required verbatim.
 
 Unreadable or ambiguous feedback, including an unclassified formal approval body,
