@@ -217,11 +217,23 @@ can persist across pushes. A new commit or deleted review comment does not by
 itself revoke an existing approval. Later reviewer concerns can cause the
 coordinator to withdraw its own approval; maintainers can explicitly dismiss it.
 
-Claude's structured verdict tolerates whitespace, capitalization, field order,
-punctuation and emphasis wrappers, and HTML line breaks. It still requires one
-explicit marker with a verdict and valid head/base revisions. Duplicate markers,
-duplicate or unknown fields, and substantive same-line text do not establish a
-sign-off; significant findings continue to block approval.
+Reviewer messages are generated text, not a strict serialization format.
+Claude's explicit verdict data is read independently of surrounding Markdown,
+HTML, quotes, code fences or prose. Field order, capitalization, quoted values,
+colon/equal separators, extra key/value metadata and agreeing repetitions are
+accepted. A clean declaration still needs a recognized verdict and consistent,
+valid head/base revisions; conflicting declarations cannot establish approval.
+A declared concern or significant finding takes precedence over clean output.
+The canonical example format remains recommended, rather than required verbatim.
+
+An authenticated formal GitHub approval is itself a sign-off; its optional body
+does not need to restate a textual protocol. Explicit concerns in that body still
+block. Unreadable or ambiguous feedback withholds a new coordinator approval but
+does not create a request for changes or withdraw an existing standing approval.
+It also cannot clear a known concern. A later clear sign-off can settle unclear
+summary output; unresolved significant or unclassified inline findings continue
+to withhold new approval. Identity, PR eligibility, human dismissals, complete
+evidence collection and isolated publication remain separate enforcement checks.
 
 CI is an independent merge condition, owned by the consumer. Pending or failed
 CI does not revoke an existing approval, and an approval is not a signal that
