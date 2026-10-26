@@ -57,7 +57,7 @@ test("composite preserves trusted helpers for both native preparation modes", {
       const trusted = fs.readFileSync(envFile, "utf8").trim().split("=")[1];
       assert.equal(path.dirname(trusted), temp);
       assert.equal(fs.readFileSync(output, "utf8"), `trusted-directory=${trusted}\n`);
-      for (const name of ["prepare-reviewer-handler.cjs", "reviewer-handler.cjs", "human-reviewer.cjs"])
+      for (const name of ["prepare-reviewer-handler.cjs", "reviewer-handler.cjs", "human-reviewer.cjs", "native-transport.cjs"])
         assert.equal(fs.readFileSync(path.join(trusted, name), "utf8"), fs.readFileSync(path.join(__dirname, name), "utf8"));
       assert.ok(fs.readFileSync(path.join(native, names[0]), "utf8").includes(JSON.stringify(path.join(fs.realpathSync(trusted), "reviewer-handler.cjs"))));
       fs.writeFileSync(path.join(candidate, "human-reviewer.cjs"), 'throw Error("untrusted candidate")');

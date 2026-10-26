@@ -99,6 +99,25 @@ Configure native `add-reviewer.target: '*'`; fixed or triggering targets are
 rejected because they override the published PR number. Reviewer logins must be
 canonical GitHub usernames, without surrounding whitespace.
 
+Callers with repository-specific write boundaries run the captured-artifact security
+preflight in `safe-outputs.steps` after this action and before Process Safe Outputs:
+`node "$DAEMON_DELIVERY_TRUSTED/native-transport.cjs" -- node "$GITHUB_WORKSPACE/.github/maintainer/validate-patch.cjs"`.
+Run from the trusted dispatch checkout with `GH_AW_AGENT_OUTPUT` pointing to the
+collected native JSON envelope, plus `GITHUB_REPOSITORY`, `GITHUB_SHA` and
+`RUNNER_TEMP`. The absolute validator must come from that trusted checkout. A fixed trusted
+Python validator is also supported with `-- python3 /absolute/validator.py [args...]`;
+the command and arguments must be workflow literals or trusted dispatch metadata,
+never agent output. Use the validator for the workflow's admitted role.
+The preflight reconstructs every captured creation in a separate disposable Git
+repository, checks the captured source ancestry and repository identity, and runs
+that original validator with `GITHUB_SHA` set to the captured base. It accepts
+creation, bound reviewer and native signal outputs only; unexpected mutations or
+missing, malformed, stale or changing artifacts fail before publication. Patch
+artifacts must embed the exact captured source base through the native header. Candidate
+hooks and scripts are never executed; Git configuration and child credentials are
+isolated. The validator may use `python3` from the runner PATH. Proposal and
+reviewer counts, readiness and review policy stay with callers and agents.
+
 Callers retain publisher authentication, permissions, admission, native safe-output
 limits, work selection, review readiness, history, deduplication and delivery
 readback. This action creates no credentials or additional publication policy.
