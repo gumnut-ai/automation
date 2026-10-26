@@ -10,8 +10,8 @@ files. Post findings using inline comments and a concise PR summary. Explicitly
 state whether actionable findings remain; do not approve or merge the PR.
 
 Fetch and record the live PR's full head and base SHAs before reviewing. Post
-one summary through `mcp__review_summary__add_review_summary`. End it with exactly one
-standalone verdict line outside any quotation or code fence:
+one summary through `mcp__review_summary__add_review_summary`. Include an explicit
+verdict, preferably as one standalone line in this canonical format:
 `<!-- gumnut-review-verdict/v1 head=<head> base=<base> verdict=<value> -->`
 Replace `<head>` and `<base>` with the recorded lowercase 40-character SHAs.
 Use `clean` only after complete review with no remaining significant concerns,

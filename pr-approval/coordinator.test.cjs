@@ -65,7 +65,7 @@ test('consumer example verdict template produces the coordinator decisions it de
       assert.equal(result.signoffs.claude.base, base);
     }
   }
-  assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', 'Review completed.'), codex()] }))).decision, 'concerns');
+  assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', 'Review completed.'), codex()] }))).decision, 'waiting');
 });
 test('incomplete Claude run preserves prior clean and prior concerns', async () => {
   assert.equal((await evaluate(fixture({ comments: [claude(), codex(), claude('incomplete', 4)] }))).decision, 'approve');
@@ -103,15 +103,14 @@ test('same-second source decisions retain concerns regardless of cross-namespace
     assert.equal((await evaluate(fixture({ comments: [claude(), clean], reviews: [finding], graphReviews: [meta] }))).decision, 'approve');
   }
 });
-test('malformed, quoted, duplicate, and legacy Claude markers cannot establish approval', async () => {
-  for (const body of ['looks good', `> <!-- gumnut-review-verdict/v1 head=${old} base=${old} verdict=clean -->`, '```\n' + claude().body + '\n```', claude().body + '\n' + claude().body, '<!-- gumnut-review-verdict/v2 verdict=clean -->']) {
-    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('claude[bot]', body, 4)] }))).decision, 'concerns');
-  }
-  assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', 'No major issues'), codex()] }))).decision, 'concerns');
-  for (const tail of [' trailing text', '<br>extra', ' <!-- -->']) {
-    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', claude().body + tail), codex()] }))).decision, 'concerns');
+test('missing, incomplete and unsupported declarations wait for a clear signoff', async () => {
+  for (const body of ['looks good', 'No major issues', '<!-- gumnut-review-verdict/v2 verdict=clean -->', claude().body.replace(' -->', '')]) {
+    const result = await evaluate(fixture({ comments: [claude(), codex(), comment('claude[bot]', body, 4)] }));
+    assert.equal(result.decision, 'waiting', body);
+    assert.match(result.reason, /intent is unclear/);
   }
 });
+
 test('a trailing HTML line break after the Claude marker does not hide its verdict', async () => {
   for (const tail of ['<br>', ' <br/> ', '<BR>\n', '<br><br />']) {
     assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', claude().body + tail), codex()] }))).decision, 'approve');
@@ -147,72 +146,93 @@ test('presentation tolerance cannot turn incomplete or significant Claude feedba
   const body = claude().body + ')\n<!-- gumnut-review-finding/v1 severity=significant -->';
   assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'concerns');
 });
-test('fence removal cannot reconstruct malformed raw Claude verdict evidence', async () => {
-  for (const delimiter of ['```', '~~~']) {
-    for (const newline of ['\n', '\r\n']) {
-      const body = [
-        `<!-- gumnut-review-verdict/v1 head=${old}`,
-        delimiter,
-        'Unclassified feedback must not be removed to manufacture a verdict.',
-        delimiter,
-        `base=${old} verdict=clean -->`,
-      ].join(newline);
-      const result = await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }));
-      assert.equal(result.decision, 'concerns', body);
+test('unrelated annotations cannot hide a declaration or a concern', async () => {
+  for (const annotation of ['confidence=0.9', 'additional generated annotation', 'confidence={score: 0.9, rationale: "review completed"}']) {
+    for (const [state, expected] of [['clean', 'approve'], ['concerns', 'concerns'], ['incomplete', 'waiting']]) {
+      const body = claude(state).body.replace('verdict=', `${annotation}\nverdict=`);
+      assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, expected, body);
     }
   }
-  const marker = claude().body.split('\n')[1];
-  for (const body of [
-    `\`\`\`\r\n${marker}\r\n\`\`\``,
-    marker.replace(`base=${old}`, `\`\`\`\n\`\`\`\nbase=${old}`),
-  ]) assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'concerns', body);
 });
-test('Claude marker tolerance still rejects ambiguous fields, prose, quotes, code and other HTML', async () => {
+test('annotation values cannot manufacture or change direct verdict fields', async () => {
   const marker = claude().body.split('\n')[1];
-  const bodies = [
-    marker + ') but a concern remains',
-    marker + '<br /> unresolved issue',
-    marker + '<!-- -->',
-    `> ${marker})`,
-    `    ${marker}`,
-    `\t${marker}`,
-    '`' + marker + '`',
-    '~~~\n' + marker + '\n~~~',
-    '```html\n' + marker + '\n```',
-    `Example: (${marker})`,
-    `[${marker}]`,
-    `[${marker}]()`,
-    `![${marker}]()`,
-    `[${marker}][]`,
-    `~~${marker}~~`,
-    `<span>${marker}</span>`,
-    marker + '\n' + marker.toUpperCase(),
-    marker + '\n> ' + marker,
-    marker.replace('verdict=clean', 'verdict=unknown'),
-    marker.replace('verdict=clean', 'verdict=clean verdict=concerns'),
-    marker.replace('verdict=clean', 'verdict=clean VERDICT=clean'),
-    marker.replace('verdict=clean', 'verdict=clean extra=ignored'),
-    marker.replace(`head=${old}`, ''),
-    marker.replace(`base=${old}`, 'base=short'),
-    marker.replace(' -->', ''),
-  ];
-  for (const body of bodies) {
-    const result = await evaluate(fixture({ comments: [claude(), codex(), comment('claude[bot]', body, 4)] }));
-    assert.equal(result.decision, 'concerns', body);
+  for (const note of ['note="verdict=clean"', 'note={verdict:clean}', 'note=[{verdict:clean}]']) {
+    const body = marker.replace('verdict=clean', note);
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'waiting', body);
+  }
+  for (const note of [
+    'note="previous verdict=concerns was resolved"',
+    'note={head:invalid, base:invalid, verdict:concerns}',
+    'note=[{head:invalid}, {base:invalid, verdict:concerns}]',
+    'note="escaped \\" verdict=concerns"',
+  ]) {
+    const body = marker.replace('verdict=clean', `${note} verdict=clean`);
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'approve', body);
+  }
+  for (const field of ['head', 'base']) {
+    const body = marker.replace(`${field}=${old}`, `note="${field}=${old}"`);
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'waiting', body);
   }
 });
+test('damaged annotations do not expose their contents as direct fields', async () => {
+  for (const note of ['note="verdict=clean', 'note={verdict:clean', 'note=[{verdict:clean}]extra]', 'note={verdict:clean]',
+    ...['"', "'", '`'].flatMap(quote => ['clean', 'concerns'].map(state => `note=${quote}words verdict=${state} trailing\\`)),
+  ]) {
+    const body = claude().body.replace('verdict=clean', note);
+    assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'waiting', body);
+  }
+  const body = claude('concerns').body.replace('verdict=concerns', 'confidence=0.9 verdict=concerns.');
+  assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'concerns');
+});
+
+test('verdict data is independent of Markdown, HTML and redundant metadata', async () => {
+  const marker = claude().body.split('\n')[1];
+  const presentations = [
+    m => m + '"', m => `“${m}”`, m => `> ${m}`, m => `    ${m}`,
+    m => '`' + m + '`', m => '```html\n' + m + '\n```',
+    m => `[${m}]()`, m => `<span>${m}</span>`, m => `Result: ${m} Done.`,
+    m => `This summary mentions gumnut-review-verdict/v1.\n${m}`,
+    m => m + '\n' + m.toUpperCase(),
+    m => m.replace('verdict=clean', 'verdict=clean VERDICT=clean extra=ignored constructor=ignored'),
+    m => m.replace(/(head|base|verdict)=([a-z0-9]+)/g, '"$1": "$2",'),
+  ];
+  for (const present of presentations) {
+    for (const [state, expected] of [['clean', 'approve'], ['concerns', 'concerns'], ['incomplete', 'waiting']]) {
+      const body = present(marker.replace('verdict=clean', `verdict=${state}`));
+      const result = await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }));
+      assert.equal(result.decision, expected, body);
+      if (state === 'clean') assert.equal(result.signoffs.claude.commit, old);
+    }
+  }
+});
+test('conflicting or invalid declaration data never establishes clean intent', async () => {
+  const marker = claude().body.split('\n')[1];
+  for (const body of [
+    marker.replace('verdict=clean', 'verdict=unknown'),
+    marker.replace('verdict=clean', 'verdict=clean verdict=incomplete'),
+    marker.replace(`head=${old}`, `head=${old} head=${head}`),
+    marker + '\n' + marker.replace(`base=${old}`, `base=${base}`),
+    marker.replace(`head=${old}`, ''), marker.replace(`base=${old}`, 'base=short'),
+  ]) assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('claude[bot]', body, 4)] }))).decision, 'waiting', body);
+  for (const body of [
+    marker.replace('verdict=clean', 'verdict=clean verdict=concerns'),
+    marker + '\n' + marker.replace('verdict=clean', 'verdict=concerns'),
+    marker.replace(`head=${old}`, 'head=damaged').replace('verdict=clean', 'verdict=concerns'),
+  ]) assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'concerns', body);
+});
+
 test('Codex summary and duplicate commit declarations do not count', async () => {
-  for (const body of ['| Codex Review | Completed |', codex().body + '\n**Reviewed commit:** `abcdef0`']) assert.equal((await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', body)] }))).decision, 'concerns');
+  for (const body of ['| Codex Review | Completed |', codex().body + '\n**Reviewed commit:** `abcdef0`']) assert.equal((await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', body)] }))).decision, 'waiting');
 });
 test('unknown later source feedback blocks earlier clean decisions, including formal bodies', async () => {
   for (const login of ['claude[bot]', 'chatgpt-codex-connector[bot]']) {
     const unknown = comment(login, 'New review format: a consequential regression remains.', 4);
-    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), unknown] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), unknown] }))).decision, 'waiting');
     const formal = { ...review(login, 'COMMENTED', 4), body: unknown.body };
-    assert.equal((await evaluate(fixture({ reviews: [formal] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ reviews: [formal] }))).decision, 'waiting');
     const clean = login === 'claude[bot]' ? claude('clean', 5) : { ...codex(), id: 5, created_at: '2026-10-12T00:05:00Z' };
     assert.equal((await evaluate(fixture({ comments: [claude(), codex(), unknown, clean] }))).decision, 'approve');
-    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), unknown, claude('incomplete', 5)] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), unknown, claude('incomplete', 5)] }))).decision, 'waiting');
   }
 });
 test('authenticated activity tables preserve standing decisions and cannot establish a signoff', async () => {
@@ -226,7 +246,7 @@ test('authenticated activity tables preserve standing decisions and cannot estab
 test('automatic activity still rejects unknown triggers and substantive appended feedback', async () => {
   for (const body of [hostedCodex.automaticActivity.replace('| PR opened |', '| Unknown trigger |'), hostedCodex.automaticActivity + '\n[P1] A remaining concern']) {
     const activity = comment('chatgpt-codex-connector[bot]', body, 4);
-    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), activity] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), activity] }))).decision, /\bP[012]\b/.test(body) ? 'concerns' : 'waiting');
   }
 });
 test('native PR thumbs-up signs off only through an authenticated Bot account ID', async () => {
@@ -269,7 +289,7 @@ test('native thumbs-up cannot hide unresolved findings or formal change requests
   const activity = comment('chatgpt-codex-connector[bot]', hostedCodex.automaticActivity, 2);
   for (const body of ['[P2] Significant unresolved finding', 'Unclassified unresolved feedback']) {
     const thread = { id: 'thread', isResolved: false, comments: conn([{ body, author: { login: 'chatgpt-codex-connector', __typename: 'Bot' } }]) };
-    assert.equal((await evaluate(fixture({ comments: [claude(), activity], reactions: [hostedCodex.prReaction], threads: [thread] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [claude(), activity], reactions: [hostedCodex.prReaction], threads: [thread] }))).decision, body.startsWith('[P2]') ? 'concerns' : 'waiting');
   }
   assert.equal((await evaluate(fixture({ comments: [claude(), activity], reactions: [hostedCodex.prReaction], reviews: [review('chatgpt-codex-connector[bot]', 'CHANGES_REQUESTED')] }))).decision, 'concerns');
 });
@@ -298,6 +318,16 @@ test('structured Claude verdicts distinguish resolved history from current conce
   concern.body = 'The earlier finding that should be fixed before merge is resolved, but a new concern remains.\n' + concern.body;
   assert.equal((await evaluate(fixture({ comments: [concern, codex()] }))).decision, 'concerns');
 });
+test('summary verdict precedence does not depend on prose placement', async () => {
+  for (const separator of [' ', '\n']) {
+    for (const prose of ['Should be fixed before merge.', 'The earlier concern is now resolved.']) {
+      const body = claude().body + separator + prose;
+      assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', body), codex()] }))).decision, 'approve');
+      const significant = body + '\n<!-- gumnut-review-finding/v1 severity=significant -->';
+      assert.equal((await evaluate(fixture({ comments: [comment('claude[bot]', significant), codex()] }))).decision, 'concerns');
+    }
+  }
+});
 test('significant concerns cannot be hidden by clean or incomplete wrappers', async () => {
   for (const source of [claude(), claude('incomplete'), codex()]) {
     source.body += source.user.login === 'claude[bot]' ? '\n<!-- gumnut-review-finding/v1 severity=significant -->' : '\n[P1] A remaining concern';
@@ -311,11 +341,11 @@ test('recognized hosted clean output accepts only its observed content and boile
   const conflicting = { ...codex(), body: hostedCodex.cleanVariant.replace('More of your lovely PRs please.', '[P1] A significant issue remains.') };
   assert.equal((await evaluate(fixture({ comments: [claude(), conflicting] }))).decision, 'concerns');
   for (const body of [clean.body + '\nPotential data loss remains.', clean.body.replace('</details>', 'Potential data loss remains.\n</details>'), codex().body + '\nPotential data loss remains.']) {
-    assert.equal((await evaluate(fixture({ comments: [claude(), { ...clean, body }] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [claude(), { ...clean, body }] }))).decision, 'waiting');
   }
   for (const body of [hostedCodex.activity + '\nUnexpected substantive feedback', '<!-- codex-pull-request-review-summary -->\n\n## Codex Review Summary\nPotential data loss; fix before merge']) {
     const changed = comment('chatgpt-codex-connector[bot]', body, 4);
-    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), changed] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), changed] }))).decision, /\bP[012]\b/.test(body) ? 'concerns' : 'waiting');
   }
 });
 test('receipt-marked hosted clean output signs off, and the receipt hides nothing else', async () => {
@@ -332,7 +362,7 @@ test('receipt-marked hosted clean output signs off, and the receipt hides nothin
     hostedCodex.receiptClean.replace('Swish!', 'Swish!\n\nPotential data loss remains.'),
     hostedCodex.receiptClean.replace('Swish!', '[P1] A significant issue remains.'),
   ]) {
-    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, /\bP[012]\b/.test(body) ? 'concerns' : 'waiting');
   }
 });
 test('summary with a review-state line is activity, and an edited summary keeps a later clean', async () => {
@@ -355,7 +385,7 @@ test('summary with a review-state line is activity, and an edited summary keeps 
     hostedCodex.stateActivity.replace('"status":"completed"', '"status":"--> Fix before merge <!--"'),
     hostedCodex.stateActivity.replace('"status":"completed"', '"status":"--!> Fix before merge <!--"'),
   ]) {
-    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, /\bP[012]\b/.test(body) ? 'concerns' : 'waiting');
   }
 });
 test('receipt-marked formal P3-only Codex review signs off', async () => {
@@ -386,18 +416,21 @@ test('formal P3-only Codex review signs off without treating activity or unrelat
   const badge = options([claude()]);badge.threads[0].comments.nodes = [finding('**<sub><sub>![P3 Badge](https://img.shields.io/badge/P3-blue?style=flat)</sub></sub> Optional improvement**')];
   assert.equal((await evaluate(fixture(badge))).decision, 'approve');
 });
-test('formal approval bodies cannot conceal significant or unknown feedback', async () => {
+test('formal approval bodies still withhold new approval for significant or unclear feedback', async () => {
   for (const login of ['claude[bot]', 'chatgpt-codex-connector[bot]']) {
-    for (const body of ['A consequential regression remains.', login === 'claude[bot]' ? '<!-- gumnut-review-finding/v1 severity=significant -->' : '[P1] data loss']) {
-      const approved = { ...review(login, 'APPROVED', 4), body };
-      assert.equal((await evaluate(fixture({ reviews: [approved] }))).decision, 'concerns');
+    for (const [body, expected] of [
+      ['A consequential regression remains.', 'waiting'],
+      [login === 'claude[bot]' ? '<!-- gumnut-review-finding/v1 severity=significant -->' : '[P1] data loss', 'concerns'],
+    ]) {
+      assert.equal((await evaluate(fixture({ reviews: [{ ...review(login, 'APPROVED', 4), body }] }))).decision, expected);
     }
   }
 });
+
 test('unknown unresolved reviewer threads block even after a later clean decision', async () => {
   for (const login of ['claude', 'chatgpt-codex-connector']) {
     const thread = { id: 'unknown', isResolved: false, comments: conn([{ body: 'Unrecognized severity: this can corrupt data.', author: { login, __typename: 'Bot' } }]) };
-    assert.equal((await evaluate(fixture({ threads: [thread] }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ threads: [thread] }))).decision, 'waiting');
     thread.isResolved = true;
     assert.equal((await evaluate(fixture({ threads: [thread] }))).decision, 'approve');
   }
@@ -589,14 +622,33 @@ test('concerns withdraw prior coordinator approval only; clean after withdrawal 
   await assert.rejects(publish({ ...f, runURL, publisher: p.publisher }), /uncertain/);
   assert.equal(p.calls.at(-1).body.event, 'APPROVE');
 });
-test('unrecognized feedback withholds an existing approval with a clear explanation', async () => {
+test('unclear output withholds new approval without withdrawing an existing approval', async () => {
   const existing = { ...review(bot, 'APPROVED'), body: '<!-- gumnut-pr-approval/v1 -->' };
-  const unknown = comment('claude[bot]', 'Changed verdict format with a new unresolved concern', 4);
-  const p = publisherFixture({ failSubmit: true });
-  await assert.rejects(publish({ ...fixture({ comments: [claude(), codex(), unknown], reviews: [existing] }), runURL, publisher: p.publisher }), /uncertain submit/);
-  assert.equal(p.calls.at(-1).body.event, 'REQUEST_CHANGES');
-  assert(p.pending.body.includes('Unrecognized reviewer feedback requires clarification'));
+  for (const login of ['claude[bot]', 'chatgpt-codex-connector[bot]']) {
+    const unknown = comment(login, 'A changed format that cannot be classified', 4);
+    for (const reviews of [[], [existing]]) {
+      const p = publisherFixture({ failSubmit: true });
+      const result = await publish({ ...fixture({ comments: [claude(), codex(), unknown], reviews }), runURL, publisher: p.publisher });
+      assert.equal(result.decision, 'waiting');
+      assert.equal(result.published, false);
+      assert.equal(p.calls.length, 0);
+    }
+    const concern = login === 'claude[bot]' ? claude('concerns', 3) : comment(login, '[P1] data loss', 3);
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), concern, unknown] }))).decision, 'concerns');
+  }
 });
+test('same-second unclear and clean evidence cannot clear a standing concern', async () => {
+  for (const [cleanId, unknownId] of [[4, 5], [5, 4]]) {
+    const clean = claude('clean', cleanId);
+    const unknown = comment('claude[bot]', 'Unclassified latest output', unknownId);
+    clean.created_at = unknown.created_at = '2026-10-12T00:10:00Z';
+    const comments = [claude('concerns', 3), codex(), clean, unknown];
+    assert.equal((await evaluate(fixture({ comments }))).decision, 'concerns');
+    assert.equal((await evaluate(fixture({ comments: [...comments, { ...claude('clean', 11) }] }))).decision, 'approve');
+    assert.equal((await evaluate(fixture({ comments: [codex(), clean, unknown] }))).decision, 'waiting');
+  }
+});
+
 test('uncertain writes and mismatching readback are not retried', async () => {
   for (const options of [{ failCreate: true }, { failSubmit: true }]) {
     const p = publisherFixture(options);

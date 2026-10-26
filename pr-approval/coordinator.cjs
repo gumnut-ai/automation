@@ -47,19 +47,6 @@ function codexActivity(body) {
   return lines.slice(5).every(line => /^\| 📝 \*\*Code Review\*\* \| (?:✅|🔄|👀|⏳|❌|⚠️) \*\*(?:Completed|Running|Queued|Failed|Cancelled)\*\*(?: (?:since )?<relative-time datetime="(\d{4}-\d{2}-\d{2}T[0-9:.]+Z)">\1<\/relative-time>)? \| `[0-9a-f]{7,40}` \| (?:Manual request|Pull request opened|PR opened|Automatic review) \|$/.test(line));
 }
 
-function outsideFences(body) {
-  const lines = [];
-  let fence;
-  for (const line of body.split(/\r?\n/)) {
-    const delimiter = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-    if (fence) {
-      if (delimiter && delimiter[1][0] === fence[0] && delimiter[1].length >= fence.length && /^[ \t]*$/.test(delimiter[2])) fence = undefined;
-    } else if (delimiter && (delimiter[1][0] === '~' || !delimiter[2].includes('`'))) fence = delimiter[1];
-    else lines.push(line);
-  }
-  return lines.join('\n');
-}
-
 function validate({ repo, number, bot }) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo || '') || !positive(number) || !/^[A-Za-z0-9-]+\[bot\]$/.test(bot || '')) throw new Error('Invalid coordinator target or bot identity');
 }
@@ -190,32 +177,64 @@ function latestWorkflowRuns(runs, head) {
 }
 
 function claudeVerdict(body) {
-  // Presentation may vary; the protocol and its three fields must stay explicit
-  // and unambiguous. Count even quoted/fenced occurrences to reject duplicates.
-  const count = (body.match(/gumnut-review-verdict\//gi) || []).length;
+  // These are authenticated reviewer declarations, not executable instructions.
+  // Read their data independently of the surrounding Markdown/HTML presentation.
+  // Repetition is harmless when it agrees; conflicting decisions are not clean.
+  const count = (body.match(/<!--\s*gumnut-review-verdict\//gi) || []).length;
   if (!count) return null;
-  const raw = body.replace(/\r\n/g, '\n');
-  const markers = [...raw.matchAll(/<!--\s*gumnut-review-verdict\/v1\s+([\s\S]*?)-->/gi)];
-  if (count !== 1 || markers.length !== 1) return { state: 'malformed' };
-  const marker = markers[0];
-  // Fences may disqualify raw evidence, but must never reconstruct a declaration.
-  if (!outsideFences(raw).includes(marker[0])) return { state: 'malformed' };
-  const before = raw.slice(0, marker.index).split('\n').at(-1);
-  const after = raw.slice(marker.index + marker[0].length).split('\n')[0];
-  // Whitespace, punctuation/emphasis and line breaks carry no verdict meaning.
-  // Same-line quotes, code, links, strikethrough, other HTML and prose still block.
-  const decoration = text => /^[\s(){}*_,.;:!?-]*$/.test(text.replace(/<br\s*\/?>/gi, ''));
-  if (/^(?: {4}|\t)/.test(before) || !decoration(before) || !decoration(after)) return { state: 'malformed' };
-  const fields = {};
-  let remaining = marker[1].trim();
-  while (remaining) {
-    const field = remaining.match(/^(head|base|verdict)\s*=\s*([a-z0-9]+)(?:\s+|$)/i);
-    if (!field || Object.hasOwn(fields, field[1].toLowerCase())) return { state: 'malformed' };
-    fields[field[1].toLowerCase()] = field[2].toLowerCase();
-    remaining = remaining.slice(field[0].length);
+  const markers = [...body.matchAll(/<!--\s*gumnut-review-verdict\/v1\s+([\s\S]*?)-->/gi)];
+  const fields = { head: new Set(), base: new Set(), verdict: new Set() };
+  let malformed = count !== markers.length;
+  for (const marker of markers) {
+    // Tokenize quoted values atomically and keep nesting boundaries. Unknown
+    // annotations are opaque: a quoted/nested "verdict=clean" is not a verdict.
+    let tokens = marker[1].replace(/[“”]/g, '"').replace(/[‘’]/g, "'").match(/"(?:\\(?:[\s\S]|$)|[^"\\])*(?:"|$)|'(?:\\(?:[\s\S]|$)|[^'\\])*(?:'|$)|`(?:\\(?:[\s\S]|$)|[^`\\])*(?:`|$)|[{}[\]:=,;*]|[^\s"'`{}[\]:=,;*]+/g) || [];
+    tokens = tokens.filter(token => token !== '*');
+    const scalar = token => {
+      if (!token || /^[{}[\]]$/.test(token)) return null;
+      if (/^["'`]/.test(token)) return token.length > 1 && token.at(-1) === token[0] ? token.slice(1, -1) : null;
+      return token.replace(/^[_.!?]+|[_.!?]+$/g, '');
+    };
+    const valueEnd = start => {
+      const first = tokens[start];
+      if (!['{', '['].includes(first)) return scalar(first) === null ? null : start + 1;
+      const stack = [];
+      for (let i = start; i < tokens.length; i++) {
+        const token = tokens[i];
+        if (token === '{' || token === '[') stack.push(token === '{' ? '}' : ']');
+        else if (token === '}' || token === ']') {
+          if (stack.pop() !== token) return null;
+          if (!stack.length) return i + 1;
+        } else if (/^["'`]/.test(token) && scalar(token) === null) return null;
+      }
+      return null;
+    };
+    // JSON-like outer object syntax is presentation of the field list.
+    if (tokens[0] === '{' && valueEnd(0) === tokens.length) tokens = tokens.slice(1, -1);
+    for (let i = 0; i < tokens.length;) {
+      const key = scalar(tokens[i])?.toLowerCase();
+      if (![':', '='].includes(tokens[i + 1])) {
+        const end = valueEnd(i);
+        if (end === null) { malformed = true; break; }
+        i = end;
+        continue;
+      }
+      const end = valueEnd(i + 2);
+      if (end === null) { malformed = true; break; }
+      if (Object.hasOwn(fields, key)) {
+        const value = scalar(tokens[i + 2]);
+        if (value === null) malformed = true;
+        else fields[key].add(value.toLowerCase());
+      }
+      i = end;
+    }
   }
-  if (!sha(fields.head) || !sha(fields.base) || !['clean', 'concerns', 'incomplete'].includes(fields.verdict)) return { state: 'malformed' };
-  return { state: fields.verdict, commit: fields.head, base: fields.base };
+  // A concern is actionable even when the rest of the declaration is damaged.
+  if (fields.verdict.has('concerns')) return { state: 'concerns' };
+  if (malformed || Object.values(fields).some(values => values.size !== 1)) return { state: 'malformed' };
+  const [head] = fields.head, [base] = fields.base, [verdict] = fields.verdict;
+  if (!sha(head) || !sha(base) || !['clean', 'incomplete'].includes(verdict)) return { state: 'malformed' };
+  return { state: verdict, commit: head, base };
 }
 
 function commentDecision(comment, login, kind = 'comment', findings = []) {
@@ -297,13 +316,20 @@ async function evaluate({ api, repo, number, bot }) {
     }
     let decision, decisionTime;
     const precedence = { clean: 0, malformed: 1, concerns: 2 };
+    const decisionsByTime = new Map();
     for (const event of ordered(events)) if (event.verdict && event.verdict.state !== 'incomplete') {
       const time = eventTime(event);
       if (!Number.isFinite(time)) throw new Error('Reviewer decision timestamp unavailable');
-      // GitHub timestamps can have only second precision. IDs across comment
-      // and review namespaces cannot prove which same-second decision was later.
-      if (time === decisionTime && precedence[decision.state] > precedence[event.verdict.state]) continue;
-      decision = event.verdict; decisionTime = time;
+      // IDs across comment/review namespaces cannot order same-second events.
+      // Settle their precedence before applying the standing-decision rules.
+      const previous = decisionsByTime.get(time);
+      if (!previous || precedence[event.verdict.state] >= precedence[previous.state]) decisionsByTime.set(time, event.verdict);
+    }
+    for (const [time, verdict] of decisionsByTime) {
+      // Unreadable output cannot clear a known concern. Only a clean decision
+      // supersedes it; an incomplete run already leaves it standing as well.
+      if (verdict.state === 'malformed' && decision?.state === 'concerns') continue;
+      decision = verdict; decisionTime = time;
     }
     if (decision?.state === 'clean') result.signoffs[name] = { ...decision, decidedAt: new Date(decisionTime).toISOString() };
     if (decision?.state === 'concerns' || latest.get(login)?.state === 'CHANGES_REQUESTED') concern = `${name} requested changes: ${decision?.url || latest.get(login)?.html_url || 'review evidence'}`;
@@ -319,7 +345,9 @@ async function evaluate({ api, repo, number, bot }) {
     if (unknown) malformed = true;
   }
   if (concern) return { ...result, decision: 'concerns', reason: concern };
-  if (malformed) return { ...result, decision: 'concerns', reason: 'Unrecognized reviewer feedback requires clarification' };
+  // Uncertainty withholds a new approval; it is not a request for changes and
+  // must not withdraw a standing approval. Only actual concerns do that.
+  if (malformed) return { ...result, decision: 'waiting', reason: 'Reviewer intent is unclear; waiting for a clear signoff' };
   if (!result.signoffs.claude || !result.signoffs.codex) return { ...result, decision: 'waiting', reason: 'Waiting for both standing reviewer signoffs' };
   // A safe later REQUEST_CHANGES does not erase a maintainer's dismissal. Its
   // override still requires fresh reviewer evidence after the latest dismissal.
