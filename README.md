@@ -90,10 +90,11 @@ Dependency delivery uses this same canonical account-exclusion helper.
 The `validate-proposal` input defaults to `false`, preserving patch-only callers.
 With `true`, the caller must supply `GH_AW_AGENT_OUTPUT` through the step's
 environment. Before patching, validation requires a clean native output envelope
-containing one PR proposal and at most one human reviewer request targeting that
-proposal's temporary ID in the same repository. A proposal without a reviewer
-remains valid. Both modes constrain reviewer delivery to the current activation's
-resolved same-repository PR and exactly one eligible human, without team reviewers.
+with unambiguous proposal temporary IDs and human reviewer requests bound to those
+proposals in the same repository. Proposals without reviewers remain valid.
+Both modes constrain reviewer delivery to the current activation's resolved
+same-repository PRs and eligible humans, without team reviewers. Proposal and
+reviewer counts remain agent policy.
 Configure native `add-reviewer.target: '*'`; fixed or triggering targets are
 rejected because they override the published PR number. Reviewer logins must be
 canonical GitHub usernames, without surrounding whitespace.
@@ -189,10 +190,12 @@ the source declaration and generated read scopes. Its corrections pin detector
 images to the source digests, add Issues read to both publisher tokens, and remove
 the caller's publisher environment from other jobs. They also normalize the setup
 release label and preserve source action annotations. The compiler also preserves the native repair baseline through output collection,
-lifts the custom handoff script's accidental one-item limit to a transport capacity
-of 100, and propagates native collection errors to the agent result before
-publication. The agent's work cap and handoff deduplication remain policy in its
-instructions; the transport ceiling is not a readiness decision. The original
+gives the custom handoff script transport capacity of 100 and propagates native
+collection errors to the agent result before publication. Callers set native
+creation, repair and reviewer transport capacities to 100: omitting those values
+restores native one-item defaults. These ceilings do not enforce the agent's
+one-proposal or handoff policy. Work caps, readiness and deduplication remain
+agent instructions. The original
 native repair tool still captures the baseline, and the publisher still rejects
 stale heads through signed compare-and-swap.
 

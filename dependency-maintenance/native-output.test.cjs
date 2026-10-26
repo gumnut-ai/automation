@@ -9,7 +9,7 @@ const { correctOutputTransport } = require("./compile.cjs");
 
 const actions = process.env.GH_AW_SETUP_DIR || process.env.GH_AW_ACTIONS_DIR;
 function collectNative(root, items, corrected = true) {
-  const config = { push_to_pull_request_branch: { max: 1 }, handoff_dependency_pr: { inputs: {
+  const config = { push_to_pull_request_branch: { max: 100 }, handoff_dependency_pr: { inputs: {
     action: { type: 'string', required: true }, pull_request_number: { type: 'number', required: true },
     head_sha: { type: 'string', required: true }, reviewer: { type: 'string', required: true },
   } } };
@@ -135,5 +135,18 @@ test('native collection retains both handoff actions and fails the agent on a di
     assert.equal(discarded.output.items.length, 2);
     assert.equal(discarded.output.errors.length, 1);
     assert.equal(discarded.failed, true); // existing agent-success gate blocks publication
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// The native numeric ceiling is transport headroom, not the agent's one-repair policy.
+test('native collection retains multiple repair intents without a one-proposal cap', { skip: !actions && 'Set GH_AW_SETUP_DIR to pinned v0.89.21 actions/setup/js' }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dependency-native-repairs-'));
+  try {
+    const items = [12, 13].map(pull_request_number => ({ type: 'push_to_pull_request_branch',
+      pull_request_number, message: 'Repair compatibility', branch: `bot/update-${pull_request_number}`, base_commit: 'a'.repeat(40) }));
+    const collected = collectNative(root, items);
+    assert.deepEqual(collected.output.items, items);
+    assert.deepEqual(collected.output.errors, []);
+    assert.equal(collected.failed, false);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

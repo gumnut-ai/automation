@@ -18,9 +18,9 @@ function wrapReviewer(main) {
           target.number <= 0 || (message.repo && message.repo !== repository)) {
         return { success: false, error: "Reviewer target must be this activation's published PR" };
       }
-      if (!Array.isArray(message.reviewers) || message.reviewers.length !== 1 ||
-          !isHumanReviewer(message.reviewers[0]) || message.team_reviewers?.length) {
-        return { success: false, error: "Exactly one eligible human reviewer is required" };
+      if (!Array.isArray(message.reviewers) || message.reviewers.length === 0 ||
+          !message.reviewers.every(isHumanReviewer) || message.team_reviewers?.length) {
+        return { success: false, error: "Eligible human reviewers are required" };
       }
       return native({ ...message, pull_request_number: target.number }, resolvedTemporaryIds);
     };

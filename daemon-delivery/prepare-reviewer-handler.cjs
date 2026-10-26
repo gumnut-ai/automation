@@ -10,30 +10,35 @@ function validateProposal(output, repository) {
   if (!Array.isArray(output?.errors) || output.errors.length !== 0)
     throw Error("Native output collection must have no validation errors");
   const items = output?.items;
-  if (!Array.isArray(items) || (items.length !== 1 && items.length !== 2) ||
-      items.some(item => !item || typeof item !== "object"))
-    throw Error("Expected one PR proposal with at most one human reviewer");
+  if (!Array.isArray(items) || items.some(item => !item || typeof item !== "object"))
+    throw Error("Expected native output items");
+  const signals = new Set(["noop", "report_incomplete", "missing_tool", "missing_data"]);
+  if (items.some(item => !["create_pull_request", "add_reviewer"].includes(item.type) && !signals.has(item.type)))
+    throw Error("Unexpected native delivery output type");
   const proposals = items.filter(item => item.type === "create_pull_request");
   const reviews = items.filter(item => item.type === "add_reviewer");
-  if (proposals.length !== 1 || reviews.length > 1 ||
-      items.length !== proposals.length + reviews.length)
-    throw Error("Expected one PR proposal with at most one human reviewer");
-  if (items.some(item => item.repo && item.repo !== repository))
+  if ([...proposals, ...reviews].some(item => item.repo && item.repo !== repository))
     throw Error("Proposal and reviewer must target this repository");
-  const proposal = proposals[0], review = reviews[0];
   const normalize = id => typeof id === "string" ? id.replace(/^#/, "").toLowerCase() : "";
-  const id = normalize(proposal.temporary_id);
-  if (!/^aw_[a-z0-9_]{3,12}$/.test(id))
-    throw Error("Invalid proposal temporary ID");
-  // Preserve a useful PR when policy cannot identify a human; delivery still
-  // reports the unresolved handoff rather than claiming success.
-  if (!review) return;
-  if (normalize(review.pull_request_number) !== id)
-    throw Error("Reviewer target must be this proposal's temporary ID");
-  if (!Array.isArray(review.reviewers) || review.reviewers.length !== 1 ||
-      !/^[a-zA-Z0-9-]+$/.test(review.reviewers[0]) ||
-      !isHumanReviewer(review.reviewers[0]) || review.team_reviewers?.length)
-    throw Error("Exactly one eligible human reviewer is required");
+  const ids = new Set();
+  for (const proposal of proposals) {
+    const id = normalize(proposal.temporary_id);
+    if (!/^aw_[a-z0-9_]{3,12}$/.test(id))
+      throw Error("Invalid proposal temporary ID");
+    // Native sorting keeps the first producer, while its result map can be
+    // overwritten by a later producer. Ambiguous IDs could redirect a review.
+    if (ids.has(id)) throw Error("Duplicate proposal temporary ID");
+    ids.add(id);
+  }
+  // Preserve useful PRs when the agent cannot identify a human. Every declared
+  // handoff must still bind unambiguously to one of these newly proposed PRs.
+  for (const review of reviews) {
+    if (!ids.has(normalize(review.pull_request_number)))
+      throw Error("Reviewer target must be a proposal's temporary ID");
+    if (!Array.isArray(review.reviewers) || review.reviewers.length === 0 ||
+        !review.reviewers.every(isHumanReviewer) || review.team_reviewers?.length)
+      throw Error("Eligible human reviewers are required");
+  }
 }
 
 function prepare(actionsDir, { validateProposal: validate = false, output, repository = process.env.GITHUB_REPOSITORY } = {}) {

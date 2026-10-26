@@ -30,6 +30,7 @@ engine: codex
 network:
   allowed: [defaults, github]
 safe-outputs:
+  # Native transport capacity; work-count caps belong to agent policy.
   # The protected environment belongs to native safe-output delivery, outside
   # the agent job. App references are unset; no credentials are provided.
   environment: fixture-dependency-publisher
@@ -39,7 +40,7 @@ safe-outputs:
     owner: fixture
     repositories: [project]
   create-pull-request:
-    max: 1
+    max: 100
     base-branch: main
     branch-prefix: dependency-maintenance/
     allowed-branches: ["dependency-maintenance/*"]
@@ -50,7 +51,7 @@ safe-outputs:
       policy: blocked
       exclude: [package.json, package-lock.json]
   push-to-pull-request-branch:
-    max: 1
+    max: 100
     target: "*"
     signed-commits: true
     fallback-as-pull-request: false

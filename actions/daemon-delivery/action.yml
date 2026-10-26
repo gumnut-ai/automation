@@ -2,7 +2,7 @@ name: Native daemon human review handoff
 description: Resolve fresh PR reviewer targets through pinned native gh-aw delivery.
 inputs:
   validate-proposal:
-    description: Validate one native PR proposal and its optional human reviewer before patching.
+    description: Validate native proposal identities and bound human reviewer targets before patching.
     required: false
     default: 'false'
 outputs:
