@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { correctWorkflow } = require('./compile.cjs');
+const { correctWorkflow, correctOutputTransport } = require('./compile.cjs');
 
 const setup = 'c35393777e5604a63721d09512263b1383301d4f';
 const actionSha = 'a'.repeat(40);
@@ -52,6 +52,20 @@ const extra = `  unrelated-job:
     steps:
       - run: echo '${JSON.stringify({ container: { imageTag: '0.28.25' } })}'
 `;
+const validation = { push_to_pull_request_branch: { defaultMax: 1, fields: {
+  branch: { type: 'string' }, message: { type: 'string', required: true }, pull_request_number: { issueOrPRNumber: true }, repo: { type: 'string' },
+} } };
+const transport = `      - name: Setup safe outputs tools
+        env:
+          GH_AW_SAFE_OUTPUTS_CONFIG: ${JSON.stringify(JSON.stringify({ push_to_pull_request_branch: { max: 1 }, handoff_dependency_pr: { inputs: { action: { type: 'string' } } } }))}
+          GH_AW_VALIDATION_JSON: |
+${JSON.stringify(validation, null, 2).split('\n').map(line => `            ${line}`).join('\n')}
+      - name: Ingest agent output
+        with:
+          script: |
+            const { main } = require(path.join(actionsDir, 'collect_ndjson_output.cjs'));
+            await main();
+`;
 const raw = `# gh-aw-manifest: {"compiler_version":"v0.89.21","repo":"github/gh-aw/actions/setup","sha":"${setup}","version":"${setup}"}
 jobs:
   pre_activation:
@@ -62,6 +76,7 @@ jobs:
     steps:
       - run: echo admission
   safe_outputs:
+    if: needs.agent.result == 'success'
     environment: fixture-publisher
     steps:
 ${token}  conclusion:
@@ -76,6 +91,7 @@ ${token}  agent:
       - uses: fixture/bare@${actionSha}
       - uses: fixture/guessed@${actionSha} # Native guessed label
       - uses: github/gh-aw/actions/setup@${setup} # ${setup}
+${transport}
   detection:
     environment: fixture-publisher
     steps:
@@ -98,23 +114,37 @@ test('validates native admission and corrects images/environments while preservi
     steps:
       - run: echo admission`);
   for (const name of ['safe_outputs', 'conclusion']) {
-    assert.equal(job(result, name), `  ${name}:\n    environment: fixture-publisher\n    steps:\n${token.replace('          permission-pull-requests: write\n', '          permission-pull-requests: write\n          permission-issues: read\n').trimEnd()}`);
+    assert.equal(job(result, name), `  ${name}:\n${name === 'safe_outputs' ? "    if: needs.agent.result == 'success'\n" : ''}    environment: fixture-publisher\n    steps:\n${token.replace('          permission-pull-requests: write\n', '          permission-pull-requests: write\n          permission-issues: read\n').trimEnd()}`);
   }
   const detector = job(result, 'detection').split('\n');
   assert.equal(detector[2], `      - run: docker pull ${Object.values(images).join(' ')}`);
   assert.deepEqual(JSON.parse(detector[3].match(/'({.*})' > /)[1]), { container: { images } });
   assert.equal(job(result, 'unrelated-job'), extra);
-  assert.equal(job(result, 'agent'), `  agent:
+  assert.equal(job(result, 'agent').trimEnd(), `  agent:
     permissions:
       contents: read
     steps:
       - uses: fixture/action@${actionSha} # Reviewed release label
       - uses: fixture/bare@${actionSha} # Preserved bare-ref label
       - uses: fixture/guessed@${actionSha} # Authoritative source label
-      - uses: github/gh-aw/actions/setup@${setup} # v0.89.21`);
+      - uses: github/gh-aw/actions/setup@${setup} # v0.89.21
+${correctOutputTransport(transport).trimEnd()}`);
   assert.deepEqual(JSON.parse(result.split('\n')[0].slice('# gh-aw-manifest: '.length)), {
     compiler_version: 'v0.89.21', repo: 'github/gh-aw/actions/setup', sha: setup, version: 'v0.89.21',
   });
+});
+
+test('transport correction declares only the native baseline and lifts the native script transport ceiling', () => {
+  const corrected = correctOutputTransport(transport);
+  const config = JSON.parse(JSON.parse(corrected.match(/GH_AW_SAFE_OUTPUTS_CONFIG: (.+)/)[1]));
+  assert.equal(config.handoff_dependency_pr.max, 100);
+  assert.deepEqual(config.handoff_dependency_pr.inputs, { action: { type: 'string' } });
+  assert.equal(config.push_to_pull_request_branch.max, 1);
+  const rules = JSON.parse(corrected.match(/GH_AW_VALIDATION_JSON: \|\n([\s\S]*?)      - name:/)[1].replace(/^            /gm, ''));
+  assert.deepEqual(rules.push_to_pull_request_branch.fields.base_commit, {
+    type: 'string', minLength: 40, maxLength: 40, pattern: '^[a-fA-F0-9]{40}$',
+  });
+  assert.match(corrected, /collected.errors.length\) core.setFailed/);
 });
 
 test('uses each caller environment and digest pins, including already pinned detector pulls', () => {
@@ -139,7 +169,11 @@ for (const [name, change, error] of [
   ['duplicate publisher token', text => text.replace(token, token + token), /expected two publisher token steps/],
   ['publisher token in another job', text => text.replace(extra, extra + token), /publisher token job drift/],
   ['missing jobs section', text => text.replace('jobs:\n', 'renamed-jobs:\n'), /expected generated jobs section/],
-  ['publisher environment drift', text => text.replace('  safe_outputs:\n    environment: fixture-publisher', '  safe_outputs:\n    environment: unexpected'), /publisher environment drift/],
+  ['publisher environment drift', text => text.replace('    environment: fixture-publisher\n    steps:\n' + token, '    environment: unexpected\n    steps:\n' + token), /publisher environment drift/],
+  ['publisher success gate drift', text => text.replace("if: needs.agent.result == 'success'", 'if: always()'), /requires successful agent collection/],
+  ['collector drift', text => text.replace('collect_ndjson_output.cjs', 'other_collector.cjs'), /transport correction point drift/],
+  ['duplicate transport config', text => text.replace(transport, transport + transport), /transport correction point drift/],
+  ['validation field drift', text => text.replace('"branch": {', '"renamed_branch": {'), /repair validation drift/],
 ]) test(`rejects ${name}`, () => assert.throws(() => correctWorkflow(source, change(raw)), error));
 
 for (const [name, changed] of [

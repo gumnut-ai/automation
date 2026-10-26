@@ -47,6 +47,11 @@ activates review). OAuth is the supported inference credential. It also owns
 permissions, policy, required CI, review requirements, schedules and the standing
 approval App. Keep review disabled until those are deliberately configured.
 
+Runtime preparation reports the exact trusted service image pin when a pull
+fails or times out. The execution check receives the fixed preparation failure
+category even when inference never starts; Docker stderr and credentials remain
+withheld. A failed preparation does not count as a completed review.
+
 For standing approval, start with `PR_APPROVAL_MODE=shadow` and the exact
 `PR_APPROVAL_BOT_LOGIN`. Assessment independently reads reviewer evidence and CI;
 it does not itself review code. An execution check alone is not a sign-off.
@@ -183,7 +188,15 @@ native compiler applies those scopes to admission. The shared compiler verifies
 the source declaration and generated read scopes. Its corrections pin detector
 images to the source digests, add Issues read to both publisher tokens, and remove
 the caller's publisher environment from other jobs. They also normalize the setup
-release label and preserve source action annotations. Repository policy, schedules,
+release label and preserve source action annotations. The compiler also preserves the native repair baseline through output collection,
+lifts the custom handoff script's accidental one-item limit to a transport capacity
+of 100, and propagates native collection errors to the agent result before
+publication. The agent's work cap and handoff deduplication remain policy in its
+instructions; the transport ceiling is not a readiness decision. The original
+native repair tool still captures the baseline, and the publisher still rejects
+stale heads through signed compare-and-swap.
+
+Repository policy, schedules,
 activation gates, image selections, credentials and environment protection remain
 caller-owned. Unexpected source or generated structure fails the command; any raw
 lockfile left by native compilation is unvalidated and must not be committed or

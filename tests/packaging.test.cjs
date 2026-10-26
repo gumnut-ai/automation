@@ -73,6 +73,8 @@ test('consumer review directly invokes pinned official Action with admitted conf
   assert.match(workflow, /if: always\(\)\n        uses: gumnut-ai\/automation\/actions\/claude-report/);
   const report = read('actions/claude-report/action.yml');
   assert.match(report, /- name: Report safe failure category\n      id: diagnostic\n/);
+  assert.ok(report.includes("inputs.job-status == 'failure'"));
+  assert.ok(action('claude-prepare').includes('node \"$AUTOMATION_ROOT/claude-review/runtime/services.cjs\"'));
   assert.ok(report.includes(`CLAUDE_FAILURE_CATEGORY: ${expr('steps.diagnostic.outputs.category')}`));
 });
 
@@ -111,7 +113,7 @@ test('CI is read-only and provider-free and exercises the pinned real backend wi
   assert.doesNotMatch(ci, /secrets\.|id-token:|: write|pull_request_target:|workflow_run:/);
   assert.match(ci, /run: npm test/);
   assert.match(ci, /docker build --tag .+ claude-review\/runtime/);
-  assert.match(ci, /services.cjs"\)\.prepareImages\(\)/);
+  assert.match(ci, /node claude-review\/runtime\/services\.cjs/);
   assert.ok(ci.includes(`ref: ${ACTION_SHA}`));
   assert.match(ci, /\.BUN_IMAGE/);
   assert.match(ci, /install --frozen-lockfile --ignore-scripts --production/);

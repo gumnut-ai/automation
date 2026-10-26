@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs/promises');
+const { recordPreparationFailure } = require('../failure-diagnostic.cjs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { spawn, execFile } = require('node:child_process');
@@ -55,13 +56,23 @@ async function docker(args, { env = {}, timeout = 15000 } = {}) {
       env: { PATH: process.env.PATH, ...env },
       timeout, maxBuffer: 1024 * 1024,
     });
-  } catch { throw new Error('Review service Docker command failed'); }
+  } catch (cause) {
+    const error = new Error('Review service Docker command failed');
+    error.timedOut = cause.killed === true && cause.signal === 'SIGTERM';
+    throw error;
+  }
 }
 
 async function prepareImages(dependencies = {}) {
   const run = dependencies.docker || docker;
   for (const image of [MODEL_IMAGE, GATEWAY_IMAGE, GITHUB_IMAGE, BUN_IMAGE]) {
-    await run(['pull', image], { timeout: 120000 });
+    try {
+      await run(['pull', image], { timeout: 120000 });
+    } catch (cause) {
+      const error = new Error(`Pinned review service image pull ${cause.timedOut === true ? 'timed out' : 'failed'}: ${image}`);
+      error.category = cause.timedOut === true ? 'image_pull_timeout' : 'image_pull_failed';
+      throw error;
+    }
   }
 }
 
@@ -194,3 +205,13 @@ async function startServices({ sessionDir, env, mcpConfig }, dependencies = {}) 
 }
 
 module.exports = { prepareImages, startServices, gatewayConfig, MODEL_IMAGE, GATEWAY_IMAGE, GITHUB_IMAGE, BUN_IMAGE, GITHUB_TOOLS, INLINE_TOOLS, COMMENT_TOOLS };
+
+if (require.main === module) {
+  prepareImages().catch(error => {
+    // Only prepareImages' static message is safe; never print Docker stderr.
+    console.error(`::error::${error.message}`);
+    try { recordPreparationFailure(error.category); }
+    catch { console.error("::error::Review preparation failure receipt unavailable"); }
+    process.exitCode = 1;
+  });
+}

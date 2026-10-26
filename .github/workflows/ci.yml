@@ -47,7 +47,7 @@ jobs:
         run: |
           review_image="$(node -p 'require("./claude-review/runtime/image.cjs")')"
           docker build --tag "$review_image" claude-review/runtime
-          node -e 'require("./claude-review/runtime/services.cjs").prepareImages().catch(() => process.exit(1))'
+          node claude-review/runtime/services.cjs
       - name: Load the pinned official inline-comment backend
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

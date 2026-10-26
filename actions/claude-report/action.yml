@@ -20,7 +20,7 @@ runs:
   steps:
     - name: Report safe failure category
       id: diagnostic
-      if: always() && inputs.outcome == 'failure'
+      if: always() && inputs.eligible == 'true' && (inputs.outcome == 'failure' || inputs.job-status == 'failure')
       shell: bash
       env:
         AUTOMATION_ROOT: ${{ github.action_path }}/../..

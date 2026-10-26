@@ -320,7 +320,12 @@ test('incomplete inference explains itself on the check; completed or cancelled 
   assert.match(failed.output.summary, /`gh workflow run claude-review\.yml --ref main -f pr_number=2645`/);
   assert.match(failed.output.summary, /https:\/\/github\.com\/example\/project\/actions\/runs\/12345/);
 
-  // A failure before inference has no category; untrusted values never reach the check.
+  for (const category of ['image_pull_failed', 'image_pull_timeout']) {
+    const body = await finished({ REVIEW_JOB_STATUS: 'failure', CLAUDE_CONCLUSION: undefined, CLAUDE_FAILURE_CATEGORY: category });
+    assert.ok(body.output.summary.includes(`Failure category: \`${category}\`.`));
+  }
+
+  // Unrecorded preparation failures and untrusted values never become check text.
   for (const category of [undefined, '', 'SECRET\n::error::injection']) {
     const body = await finished({ REVIEW_JOB_STATUS: 'failure', CLAUDE_CONCLUSION: undefined, CLAUDE_FAILURE_CATEGORY: category });
     assert.match(body.output.summary, /Failure category: `not recorded`\./);
