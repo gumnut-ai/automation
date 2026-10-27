@@ -281,16 +281,10 @@ publication gate does not change the approval's lifetime.
 
 ## Updates and rollback
 
-GH-AW integrations must use supported configuration and documented extension
-points. Existing compiler/runtime corrections are migration debt: do not extend
-them or add new private-helper dependencies. Assess the caller's agreed security
-requirements separately from stronger reconciliation, signature or outcome
-preferences. Prefer native behavior where it satisfies that agreement; an
-unsupported necessary boundary requires a platform decision instead of a patch.
-Workflow and security-file changes may enter PRs subject to CI, AI review and
-human approval; the publisher need not mechanically exclude those files.
-See the [native platform assessment](native-toolchain/assessment/README.md) for
-the release-age check, reproducible probes and current limitations.
+Use GH-AW through supported configuration and documented extension points.
+Existing compiler/runtime corrections are migration debt; do not extend them or
+add private-helper dependencies. Caller-specific design and evaluation records
+belong in the caller's documentation.
 
 A shared change does not update consumers. Review its diff, run validation, then
 update all shared pins in one consumer PR. Keep policy, gates and environment
