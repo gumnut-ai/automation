@@ -22,9 +22,10 @@ and needs its own reviewed update. Do not activate reviewers or merge PRs.
 Use GH-AW through its supported configuration and documented extension points.
 Do not add or extend generated-workflow rewrites, downloaded-runtime patches,
 or integrations with private GH-AW helpers. Existing corrections are migration
-debt, not a pattern to copy. If a necessary security or concurrency boundary
-cannot be expressed through supported interfaces, record the gap and reassess
-the platform; do not weaken the boundary or implement another compatibility
-patch. Keep investigation, work selection and quality judgments with agents.
+debt, not a pattern to copy. Use the caller's agreed security requirements;
+accept native reconciliation, fallback and partial outcomes unless a demonstrated
+security boundary requires otherwise. Record unsupported necessary boundaries
+and reassess the platform instead of adding another compatibility patch.
+Keep investigation, work selection and quality judgments with agents.
 New executable dependencies and release assets must meet the caller's 14-day
 supply-chain cooldown; distinguish a prerelease from a stable release.
