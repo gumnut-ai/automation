@@ -44,6 +44,12 @@ network:
   - github
 safe-outputs:
   environment: fixture-dependency-publisher
+  github-app:
+    client-id: ${{ vars.FIXTURE_PUBLISHER_CLIENT_ID }}
+    private-key: ${{ secrets.FIXTURE_PUBLISHER_PRIVATE_KEY }}
+    owner: fixture
+    repositories:
+    - project
   create-pull-request:
     max: 10
     base-branch: main
@@ -53,11 +59,8 @@ safe-outputs:
     preserve-branch-name: true
     fallback-as-issue: false
     if-no-changes: error
-    protected-files:
-      policy: blocked
-      exclude:
-      - package.json
-      - package-lock.json
+    protected-files: allowed
+    allow-workflows: true
     signed-commits: false
     patch-format: am
     labels:
@@ -70,11 +73,8 @@ safe-outputs:
     github-token-for-extra-empty-commit: none
     patch-format: bundle
     if-no-changes: error
-    protected-files:
-      policy: blocked
-      exclude:
-      - package.json
-      - package-lock.json
+    protected-files: allowed
+    allow-workflows: true
     required-labels:
     - dependencies
   add-reviewer:
@@ -97,7 +97,6 @@ safe-outputs:
     create-issue: false
   report-failure-as-issue: false
   report-failed-jobs: false
-  github-token: ${{ steps.native_job_token.outputs.token }}
 'on':
   permissions:
     contents: read
@@ -110,48 +109,16 @@ safe-outputs:
   - admin
   - maintainer
   - write
-jobs:
-  safe_outputs:
-    pre-steps:
-    - name: Mint scoped synthetic publisher token
-      id: native_job_token
-      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
-      with:
-        client-id: ${{ vars.FIXTURE_PUBLISHER_CLIENT_ID }}
-        private-key: ${{ secrets.FIXTURE_PUBLISHER_PRIVATE_KEY }}
-        owner: fixture
-        repositories: project
-        permission-contents: write
-        permission-pull-requests: write
-        permission-issues: read
-        permission-administration: read
-  conclusion:
-    pre-steps:
-    - name: Mint scoped synthetic publisher token
-      id: native_job_token
-      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
-      with:
-        client-id: ${{ vars.FIXTURE_PUBLISHER_CLIENT_ID }}
-        private-key: ${{ secrets.FIXTURE_PUBLISHER_PRIVATE_KEY }}
-        owner: fixture
-        repositories: project
-        permission-contents: write
-        permission-pull-requests: write
-        permission-issues: read
-        permission-administration: read
-pre-steps:
-- name: Use the read-only job token for agent checkout
-  id: native_job_token
-  env:
-    GH_TOKEN: ${{ github.token }}
-  run: echo "token=$GH_TOKEN" >> "$GITHUB_OUTPUT"
 ---
 
 This disabled fixture assesses native delivery for `fixture/project`. Never install
 or dispatch it. App references are unset. Agent checkout uses the read-only job
-token; only native publisher jobs mint the scoped App token. Use native creation
+token; native publisher jobs mint the App token, including Issues and Workflows
+write. The App installation must grant those scopes before real use. Use native creation
 and numeric assignment/review. Accept native repair reconciliation and recovery.
 Keep readiness, human selection, counts and deduplication in agent instructions.
-Respect native protected-file refusals and leave unsupported artifacts blocked.
-The observation probe includes an unexpected-bundle counterexample: compilation
-and normal am transport do not prove a safe protected-file boundary.
+Workflow and security-file changes are allowed on PR branches. Every PR must pass
+CI and AI review and receive human approval before merge. Never enable merge or
+approval outputs. Unsupported artifacts remain visible blockers. The observation
+probe retains the unexpected-bundle case, but protected-file exclusion is no longer
+a requirement; inspect the resulting PR diff through the ordinary review path.

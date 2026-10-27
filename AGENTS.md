@@ -24,7 +24,9 @@ Do not add or extend generated-workflow rewrites, downloaded-runtime patches,
 or integrations with private GH-AW helpers. Existing corrections are migration
 debt, not a pattern to copy. Use the caller's agreed security requirements;
 accept native reconciliation, fallback and partial outcomes unless a demonstrated
-security boundary requires otherwise. Record unsupported necessary boundaries
+security boundary requires otherwise. Workflow and security-file edits may be
+proposed in PRs requiring CI, AI review and human approval; file exclusion is not
+a mandatory publisher boundary. Record unsupported necessary boundaries
 and reassess the platform instead of adding another compatibility patch.
 Keep investigation, work selection and quality judgments with agents.
 New executable dependencies and release assets must meet the caller's 14-day

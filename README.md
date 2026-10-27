@@ -287,6 +287,8 @@ them or add new private-helper dependencies. Assess the caller's agreed security
 requirements separately from stronger reconciliation, signature or outcome
 preferences. Prefer native behavior where it satisfies that agreement; an
 unsupported necessary boundary requires a platform decision instead of a patch.
+Workflow and security-file changes may enter PRs subject to CI, AI review and
+human approval; the publisher need not mechanically exclude those files.
 See the [native platform assessment](native-toolchain/assessment/README.md) for
 the release-age check, reproducible probes and current limitations.
 

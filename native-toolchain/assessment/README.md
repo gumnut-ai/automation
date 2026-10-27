@@ -12,7 +12,9 @@ Use unmodified GH-AW and documented configuration/extensions. Preserve:
   programs with the publisher token.
 - Configured repository/native branch restrictions, with no direct default-branch
   writes, automatic merges or approvals.
-- Native protected-file restrictions on active automation and security controls.
+- CI, AI review and human approval before merge, including PRs that change
+  workflows or security controls. Those files need not be mechanically excluded
+  from proposal or repair branches.
 
 Accept native reconciliation onto advanced heads, commit/signature and fallback
 behavior subject to repository rules, environment placement across trusted jobs,
@@ -21,6 +23,10 @@ binding are no longer mandatory gates. Agents own work selection, readiness,
 human reviewer selection, counts and deduplication. These requirements supersede
 the earlier assessment's stronger repair contract; a semantic difference alone
 is not a platform defect or a reason to build a custom publisher.
+
+Review applies to the resulting PR diff, not the agent's advertised patch.
+Allowing workflow edits does not authorize candidate execution with publisher
+credentials or a candidate's replacement of the current run's trusted controls.
 
 ## Stable release selection
 
@@ -86,12 +92,14 @@ Separate source-only candidates also compiled for all 13. The assessment:
 No generated YAML or downloaded runtime was edited. The probe loads native
 modules only as test subjects; no private helper is integrated into production.
 
-## Results under the relaxed contract
+## Recorded results and revised interpretation
 
-The real generated collector configurations and validation schemas drove local
+The original generated collector configurations and validation schemas drove local
 Git fixtures and mocked GitHub APIs. Admitted fixture paths respect each
 consumer's native file allowlist. Ten unconstrained configurations also carried
 binary data and an executable; three restricted roles used a README edit.
+These 13 candidates retained the earlier blocked-file policies; their results
+are preserved, not presented as tests of newly enabled workflow publication.
 
 | Case | Stable native result |
 | --- | --- |
@@ -107,25 +115,74 @@ binary data and an executable; three restricted roles used a README edit.
 | Unauthorized repair | Foreign head repository, default/protected branch and hidden protected bundle edit are refused in all 5 repair configurations; missing label is refused in the 4 label-constrained configurations |
 | Signed API failure | Dependency repair can fall back to an unsigned local Git push; accepted native semantics, not a signature guarantee |
 | Mixed valid/invalid output | Native collection retains valid items and records errors; accepted partial outcomes |
-| **Unexpected creation bundle** | **All 13 creation configurations can publish a protected workflow edit absent from the advertised patch, even with `patch-format: am`** |
+| Unexpected creation bundle | All 13 creation configurations can publish a protected workflow edit absent from the advertised patch, even with `patch-format: am`; no longer an adoption blocker under the revised contract |
 
-The last row is a remaining security failure, not an exact-head or signed-only
-preference. The agent writes a safe patch, then supplies an additional canonical
-bundle with a protected file. The creation publisher prefers that bundle by
+The last row is a native validation mismatch. The agent writes a safe patch, then
+supplies an additional canonical bundle with a protected file. The creation publisher prefers that bundle by
 presence and its direct-push route lacks the patch route's post-apply check.
 Selecting `am` changes capture behavior, but does not prohibit bundle replay.
 The fixture checks the actual local remote tree, not just a mocked success flag.
 
-Do not treat compilation success or the ordinary proposal happy path as passing
-this protected-file boundary. No new patch or custom publisher is added here.
-Re-test an eligible stable release for this case before removing the existing
-artifact validation. A later release's source may be inspected during cooldown;
-its executables must not be run early.
+The file is visible in the resulting PR diff. The test demonstrates publication
+to a proposal branch, not a default-branch write, merge or credential leak.
+It reproduces one shared publisher behavior under 13 configurations, not 13
+independent defects or observed malicious daemon runs. Because workflow edits
+are now permitted through CI, AI review and human approval, closing this mismatch
+is no longer a prerequisite for native adoption. Do not add a compatibility patch
+for this superseded restriction.
+
+## Native adoption decision
+
+**No demonstrated architectural blocker remains under the agreed requirements.**
+Use native GH-AW rather than retain compatibility code for exact-head binding,
+signed-only publication, temporary-ID handoff or protected-file exclusion.
+That is a platform-fit conclusion, not evidence that a production migration has
+already passed hosted validation.
+
+Native `protected-files: allowed` permits protected-file changes. For workflow
+creation and repair, `allow-workflows: true` requires `safe-outputs.github-app`
+and adds Workflows write to the minted App token. These are documented source
+settings; no generated YAML or runtime change is needed. Role-specific file
+allowlists may still deliberately narrow a role's work.
+
+The disabled synthetic fixture now exercises this simpler native App path with
+workflow changes allowed. Unlike the historical 13-consumer candidates, it uses
+automatic native token minting rather than custom token pre-steps. It requires
+Issues write for assignment and Workflows write for workflow edits. The recorded installation
+snapshot has Issues read and lacks Workflows write, so permission setup is
+needed before using that path. No App grant or real token mint is performed by
+this assessment. Ordinary proposals can still use the scoped token hooks below.
+
+The revised fixture compiles without corrections. Local Git tests admit a visible
+workflow addition and rename on proposal branches, keeping the default branch
+unchanged. Workflow repair reaches mocked signed API mutations. Foreign-repository,
+default/protected-branch and missing-label repair cases are still refused. The
+generated agent remains read-only and contains no publisher-key reference; only
+the two publisher jobs mint App tokens. This is one new synthetic configuration,
+not a rerun of the historical 13 configurations with file policies changed.
+
+Before switching a consumer, complete a hosted canary and inspect its result:
+
+| Remaining rollout gate | Evidence needed |
+| --- | --- |
+| Publisher and agent isolation | Read-only agent credentials; publisher key/token excluded from candidate execution, including cross-repository read-tool setup |
+| Trusted publication | Reviewed workflow revision and pinned native code control publication; no candidate hooks, tests or scripts run with the publisher token |
+| Ordinary PR path | Real App-authenticated creation and repair trigger required CI and AI review on the published changes; human approval is required and the App cannot bypass the merge requirements |
+| Workflow-edit capability | Deliberately configure native allowed-file policy and App Workflows write; verify a visible workflow edit reaches a PR and its checks/reviews |
+| Runtime eligibility | Review the complete runtime graph against cooldown and pinning requirements; native v0.89.21 detection still emits versioned AWF image tags |
+
+GitHub App publication supports ordinary event-triggered CI; mocks do not prove
+that a consumer's particular triggers, required checks or review rules are wired
+correctly. Verify new and updated PRs, including workflow edits, before removing
+that consumer's compatibility guards. Keep automatic merge/approval outputs
+unconfigured. Existing reviewer and standing-approval systems are not changed by
+this assessment. These are rollout/configuration gates, not demonstrated reasons
+to reject GH-AW or build another framework.
 
 ## Supported authentication configuration
 
 Native assignment causes automatic App-token generation to request Issues write.
-The current installation has Issues read and Pull requests write. GitHub documents
+The recorded installation snapshot has Issues read and Pull requests write. GitHub documents
 [Pull requests write as sufficient for PR assignment](https://docs.github.com/en/rest/issues/assignees#add-assignees-to-an-issue).
 A supported alternative is explicit scoped token minting in publisher jobs:
 
@@ -152,9 +209,10 @@ pre-steps:
 ```
 
 The agent's step supplies its existing read-only job token, never the publisher
-App key. The compiler requires the token step in each consuming job. The disabled
-fixture has the complete synthetic configuration. The generated agent token step
-was executed with a dummy value for each candidate; all 13 produced the expected
+App key. The compiler requires the token step in each consuming job. The historical
+consumer candidates use this configuration; the disabled fixture instead shows
+automatic native App minting with workflow permission. The generated agent token
+step was executed with a dummy value for each historical candidate; all 13 produced the expected
 output without printing the token. No real App token was minted.
 
 Generated job permissions remain read-only for agents. One consumer additionally
@@ -195,10 +253,10 @@ Signed API mocks return synthetic OIDs and do not create real signed commits.
 
 Hosted inference, dependency installation, App exchange, actual signatures,
 ordinary PR CI, sandbox credential isolation, complete human handoff and scheduled
-operation remain unverified. Production migration is not justified by this
-assessment. The architecture recommendation is to retain the relaxed native
-contract and resolve the actual protected-artifact gap through a supported native
-release/interface before choosing between GH-AW and a different executor.
+operation remain unverified. The architecture recommendation is native GH-AW
+under the relaxed contract, followed by a hosted canary and consumer rollout.
+This assessment does not authorize production activation or establish that the
+remaining rollout gates have passed.
 
 ## Source anchors
 
