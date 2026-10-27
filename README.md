@@ -281,6 +281,11 @@ publication gate does not change the approval's lifetime.
 
 ## Updates and rollback
 
+Use GH-AW through supported configuration and documented extension points.
+Existing compiler/runtime corrections are migration debt; do not extend them or
+add private-helper dependencies. Caller-specific design and evaluation records
+belong in the caller's documentation.
+
 A shared change does not update consumers. Review its diff, run validation, then
 update all shared pins in one consumer PR. Keep policy, gates and environment
 protection local. Preserve existing activation gates and modes during migration.
