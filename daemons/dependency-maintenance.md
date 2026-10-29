@@ -63,6 +63,13 @@ baseline. Append fixes without rewriting bot or human commits. Respect the
 configured publisher's reconciliation, refusal and recovery behavior when the
 live head advances. Inspect its actual result before claiming delivery or
 attempting further work; do not retry an uncertain write blindly.
+If the configured tools cannot safely repair an existing PR, retain its URL,
+observed head, actionable findings and blocking capability in the activation
+outcome for the existing PR shepherd to resume under human authorization. Do not
+open a replacement, trigger another agent or claim completed recovery. Preserve
+human edits and pending review requests; missing initial human-review delivery
+remains this role's responsibility under local policy. Apply the outcome rules
+above without invalidating unrelated deliverable work.
 
 Regenerate artifacts using the candidate's pinned toolchain. Publication follows
 the caller's configured file policy and supported transport. Workflow changes
