@@ -57,19 +57,10 @@ leave a permanently blocked PR for a relevant evidence change. Diagnose CI
 failures from their logs and distinguish update regressions from unrelated or
 transient failures before changing code or requesting a justified rerun.
 
-Prefer repairing the original same-repository bot PR. Use the pre-fetched origin
-branch with the same local branch name and preserve its head as the incremental
-baseline. Append fixes without rewriting bot or human commits. Respect the
-configured publisher's reconciliation, refusal and recovery behavior when the
-live head advances. Inspect its actual result before claiming delivery or
-attempting further work; do not retry an uncertain write blindly.
-If the configured tools cannot safely repair an existing PR, retain its URL,
-observed head, actionable findings and blocking capability in the activation
-outcome for the existing PR shepherd to resume under human authorization. Do not
-open a replacement, trigger another agent or claim completed recovery. Preserve
-human edits and pending review requests; missing initial human-review delivery
-remains this role's responsibility under local policy. Apply the outcome rules
-above without invalidating unrelated deliverable work.
+Prefer repairing the original same-repository bot PR, applying the shared
+existing-PR repair contract to these additional eligible targets as well.
+Missing initial human-review delivery remains this role's responsibility under
+local policy.
 
 Regenerate artifacts using the candidate's pinned toolchain. Publication follows
 the caller's configured file policy and supported transport. Workflow changes
