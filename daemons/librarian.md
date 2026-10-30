@@ -4,6 +4,16 @@ Apply these instructions together with the consuming repository's daemon policy
 and owning repository guidance. Repository scope, limits, exceptions and required
 checks remain local authorities.
 
+Inspect actionable feedback on existing role PRs before new overlapping work.
+When the configured tools cannot safely repair one, retain its URL, observed head,
+actionable findings and blocking capability in the activation outcome for the
+existing PR shepherd to resume under human authorization. This is a recovery
+handoff, not a new proposal or completed repair; do not open a replacement PR or
+trigger another agent. Preserve human edits and pending review requests. Missing
+initial human-review delivery remains the role's responsibility under local
+policy. Apply the native outcome rules below without invalidating unrelated
+deliverable work.
+
 Prefer corrections that help readers understand or maintain a lasting contract.
 Keep one-time rollout or operator execution instructions with their operational
 record unless a recurring reader need justifies evergreen guidance.
