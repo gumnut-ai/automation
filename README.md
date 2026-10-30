@@ -239,6 +239,13 @@ For example, add `inlined-imports: true` and an `imports` entry of
 `gumnut-ai/automation/daemons/librarian.md@<reviewed-full-commit-sha>` to the
 consumer's workflow frontmatter, replacing the placeholder with its reviewed SHA.
 
+Every PR-publishing daemon also needs a native branch-update output and imports
+`daemons/pr-repair.md` alongside its role instructions, pinned to a reviewed full
+commit SHA. That shared instruction covers maintaining the role's own PRs;
+additional repair targets, such as dependency bots, remain caller policy. Keep
+ownership, scope, caps and readiness judgments with the agent. Keep native repair
+credentials in the isolated publisher and disable replacement-PR fallback.
+
 The consumer owns scope, schedules, activation, limits, required checks,
 dependency exceptions, release evidence, lifecycle and retirement rules, and
 human review policy. The shared files supply common behavior without caller
