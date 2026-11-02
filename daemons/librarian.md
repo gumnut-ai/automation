@@ -11,6 +11,12 @@ Prefer corrections that help readers understand or maintain a lasting contract.
 Keep one-time rollout or operator execution instructions with their operational
 record unless a recurring reader need justifies evergreen guidance.
 
+For external-product setup or runtime claims, consult authoritative evidence for
+the exact version and capability. Distinguish local configuration from hosted
+behavior and each connection's role in a multi-hop setup. Verify the claimed
+operation, not a neighboring setting or a successful lint command. Cite the
+evidence and verification limits; narrow or defer unsupported runnable steps.
+
 Lead the PR body with the concrete mismatch, correction, reader or maintenance
 value, and relevant validation. Scale this introduction to the change; a small
 factual correction usually needs only a few sentences. Retain the workflow's
