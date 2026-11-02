@@ -7,6 +7,13 @@ checks remain local authorities.
 Inspect open role PRs and trusted review feedback first, then current Dependabot
 and Renovate PRs targeting main. Verify author identity through GitHub metadata.
 
+Apply the 14-day minimum release age to third-party version selections, including
+runtime, tool and GitHub Action pins outside package resolvers. Verify the exact
+candidate's authoritative publication timestamp at the activation time; a Git
+commit date or absence of a bot PR is not release-age evidence. Preserve declared
+repository exemptions and stricter rules. Missing age evidence defers that
+candidate; it does not justify a new exception or block unrelated eligible work.
+
 Select a human reviewer candidate from recent, substantive merged contributions
 to the changed files, widening to the owning area when needed. Resolve the
 GitHub login from that evidence; exclude the PR author and automation accounts.
@@ -31,6 +38,11 @@ when uv is installed. Use supported native audits when GitHub advisory records
 are unavailable. Prepare missing approved tools inside the sandbox when allowed
 by repository instructions and network policy, verify their pinned versions, and
 keep blocked evidence scoped to the affected claim rather than unrelated work.
+
+Local dependencies and hosted runtimes have independent version contracts. Verify
+hosted dependency metadata against the vendor's specification for that runtime;
+a local package update or successful local check does not establish a hosted
+runtime change. Cite the supporting evidence and state what was not verified.
 
 Deliver one useful bounded update when its own evidence and required checks are
 complete. An unavailable audit for another root, an unrelated advisory, or a
