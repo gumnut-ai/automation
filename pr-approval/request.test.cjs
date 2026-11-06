@@ -7,7 +7,7 @@ const repo = 'example/project';
 function fixture(eventName = 'pull_request_target') {
   const pr = { number: 10, state: 'open', draft: false, head: { repo: { full_name: repo } }, base: { ref: 'main', repo: { full_name: repo } } };
   const run = { id: 12, run_attempt: 1, status: 'completed', conclusion: 'success', repository: { full_name: repo }, head_repository: { full_name: repo }, path: '.github/workflows/pr-approval-request.yml', head_branch: 'main', event: 'issue_comment', display_title: '{"number":"10"}', pull_requests: [{ number: 10 }] };
-  const env = { GITHUB_REPOSITORY: repo, GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: eventName, GITHUB_ACTOR: 'fixture-publisher[bot]', PR_APPROVAL_MODE: 'shadow' };
+  const env = { GITHUB_REPOSITORY: repo, GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: eventName, GITHUB_ACTOR: 'fixture-publisher[bot]' };
   const event = { repository: { full_name: repo, default_branch: 'main' }, action: 'opened', pull_request: pr, sender: { type: 'Bot', login: 'fixture-publisher[bot]' }, issue: { number: 10, pull_request: {} }, comment: { id: 30, user: { type: 'Bot', login: 'claude[bot]' } }, inputs: { pr_number: '10' }, workflow_run: { id: 12 } };
   const job = { run_id: 12, run_attempt: 1, name: 'Approval request', status: 'completed', conclusion: 'success', steps: [{ name: 'Admitted approval request', status: 'completed', conclusion: 'success' }] };
   const responses = { jobs: [job], pr, run, prs: [pr], permission: 'write', comment: { user: event.comment.user, issue_url: `https://api.github.com/repos/${repo}/issues/10` } };
@@ -45,13 +45,25 @@ test('same-repository bot event and human writer both request assessment', async
   human.responses.permission = 'read';
   await denied(source, human);
 });
-test('unsafe PRs, wrong branch, malformed bot identities and disabled modes skip', async () => {
+test('source and deferred routing need no separate activation setting', async () => {
+  for (const mode of [undefined, '', 'false', 'shadow']) {
+    const s = fixture();
+    const r = fixture('workflow_run'); r.event.action = 'completed';
+    // Obsolete caller configuration must not silently disable an installed
+    // reviewer after its workflow upgrades to the mode-free action interface.
+    if (mode !== undefined) s.env.PR_APPROVAL_MODE = r.env.PR_APPROVAL_MODE = mode;
+    assert.deepEqual(await source(s), { eligible: true, number: 10 });
+    assert.deepEqual(await route(r), { eligible: true, number: 10 });
+    assert.ok([...s.calls, ...r.calls].every(c => c.method === 'GET'));
+  }
+});
+test('unsafe PRs, wrong branch, malformed bot identities skip', async () => {
   for (const mutate of [
     f => { f.responses.pr.draft = true; }, f => { f.responses.pr.state = 'closed'; },
     f => { f.responses.pr.head.repo.full_name = 'attacker/project'; },
     f => { f.responses.pr.base.ref = 'other'; }, f => { f.env.GITHUB_REF = 'refs/heads/other'; },
     f => { f.event.sender.login = 'not-a-bot'; f.env.GITHUB_ACTOR = 'not-a-bot'; },
-    f => { f.env.PR_APPROVAL_MODE = 'true'; }, f => { f.event.action = 'edited'; },
+    f => { f.event.action = 'edited'; },
   ]) { const f = fixture(); mutate(f); await denied(source, f); }
 });
 test('only authenticated reviewer comments can request assessment', async () => {
@@ -155,11 +167,11 @@ test('one unavailable PR assessment does not stop the remaining sweep', async ()
   assert.equal(result.results[1].decision, 'ineligible');
   assert.ok(!JSON.stringify(result).includes('private evidence'));
 });
-test('workflow boundaries keep publisher credentials out of source and shadow jobs', () => {
+test('workflow boundaries keep publisher credentials out of read-only jobs', () => {
   const request = fs.readFileSync(path.join(__dirname, '../tests/fixtures/workflows/pr-approval-request.yml'), 'utf8');
   const coordinator = fs.readFileSync(path.join(__dirname, '../tests/fixtures/workflows/pr-approval-coordinator.yml'), 'utf8');
   assert.doesNotMatch(request, /secrets\.|: write|head.sha|refs\/pull/);
-  assert.match(request, /PR_APPROVAL_MODE == 'shadow'/);
+  assert.doesNotMatch(request + coordinator, /PR_APPROVAL_MODE/);
   assert.match(request, /pull_request_review:\n/);
   assert.match(request, /name: Validate metadata request\n        id: request/);
   assert.match(request, /name: Admitted approval request\n        if: steps.request.outputs.eligible == 'true'/);
@@ -171,7 +183,7 @@ test('workflow boundaries keep publisher credentials out of source and shadow jo
   const assessment = coordinator.split('  assess:')[1].split('  publish:')[0];
   const publication = coordinator.split('  publish:')[1];
   assert.doesNotMatch(assessment, /secrets\.|create-github-app-token|PUBLISH_TOKEN/);
-  assert.match(publication, /vars.PR_APPROVAL_MODE == 'publish'/);
+  assert.match(publication, /if: needs.assess.outputs.eligible == 'true' && needs.assess.outputs.actionable == 'true'/);
   assert.match(publication, /outputs.actionable == 'true'/);
   assert.match(publication, /environment: pr-approval-publisher/);
   assert.match(publication, /cancel-in-progress: false/);

@@ -25,10 +25,8 @@ async function writer(api, ctx, login) {
   const permission = await api('GET', `${ctx.root}/collaborators/${encodeURIComponent(login)}/permission`);
   return ['write', 'maintain', 'admin'].includes(permission.permission);
 }
-const enabled = env => ['shadow', 'publish'].includes(env.PR_APPROVAL_MODE);
 async function source({ env, event, api }) {
   const ctx = context(env, event);
-  if (!enabled(env)) return { eligible: false };
   if (!reviewEvents.has(env.GITHUB_EVENT_NAME)) requireValid(env.GITHUB_REF === `refs/heads/${ctx.branch}`);
   let number;
   if (env.GITHUB_EVENT_NAME === 'pull_request_target') {
@@ -68,7 +66,6 @@ async function source({ env, event, api }) {
 }
 async function route({ env, event, api }) {
   const ctx = context(env, event);
-  if (!enabled(env)) return { eligible: false };
   if (env.GITHUB_EVENT_NAME === 'schedule') {
     requireValid(env.GITHUB_REF === `refs/heads/${ctx.branch}`);
     const numbers = [];
@@ -154,7 +151,7 @@ async function main(mode, env = process.env) {
     writeOutputs(env.GITHUB_OUTPUT, result);
     console.log(JSON.stringify(result));
   } else {
-    requireValid(enabled(env) && validBot(env.PR_APPROVAL_BOT_LOGIN));
+    requireValid(validBot(env.PR_APPROVAL_BOT_LOGIN));
     const args = { api, repo: env.GITHUB_REPOSITORY, bot: env.PR_APPROVAL_BOT_LOGIN };
     if (mode === 'inspect') {
       const targets = JSON.parse(env.PR_NUMBERS);
@@ -167,7 +164,7 @@ async function main(mode, env = process.env) {
       writeOutputs(env.GITHUB_OUTPUT, { eligible: true, actionable: assessment.numbers.length > 0, numbers: assessment.numbers });
     }
     else {
-      requireValid(env.PR_APPROVAL_MODE === 'publish' && validNumber(env.GITHUB_RUN_ID) && validNumber(env.PR_NUMBER));
+      requireValid(validNumber(env.GITHUB_RUN_ID) && validNumber(env.PR_NUMBER));
       console.log(JSON.stringify(await publish({ ...args, number: Number(env.PR_NUMBER), publisher: createApi(env.PUBLISH_TOKEN), runURL: `https://github.com/${args.repo}/actions/runs/${env.GITHUB_RUN_ID}` })));
     }
   }

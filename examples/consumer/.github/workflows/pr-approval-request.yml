@@ -23,7 +23,6 @@ jobs:
   request:
     name: Approval request
     if: >-
-      (vars.PR_APPROVAL_MODE == 'shadow' || vars.PR_APPROVAL_MODE == 'publish') &&
       (github.event_name != 'issue_comment' ||
        (github.event.issue.pull_request && github.event.comment.user.type == 'Bot' &&
         (github.event.comment.user.login == 'claude[bot]' ||
@@ -48,7 +47,6 @@ jobs:
         uses: gumnut-ai/automation/actions/pr-approval@8e0a7d2ac07ce01bf268b0a31dd2b20f6421a74d # REPLACE with a reviewed full commit SHA
         with:
           operation: source
-          mode: ${{ vars.PR_APPROVAL_MODE }}
       - name: Admitted approval request
         if: steps.request.outputs.eligible == 'true'
         run: 'true'

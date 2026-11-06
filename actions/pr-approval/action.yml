@@ -4,8 +4,6 @@ inputs:
   operation:
     description: source, route, inspect or publish. Validated by the implementation.
     required: true
-  mode:
-    description: Explicit activation mode, shadow or publish.
   bot-login:
     description: Exact standing approval App login.
   numbers:
@@ -36,7 +34,6 @@ runs:
         AUTOMATION_ROOT: ${{ github.action_path }}/../..
         OPERATION: ${{ inputs.operation }}
         GH_TOKEN: ${{ github.token }}
-        PR_APPROVAL_MODE: ${{ inputs.mode }}
         PR_APPROVAL_BOT_LOGIN: ${{ inputs.bot-login }}
         PR_NUMBERS: ${{ inputs.numbers }}
         PR_NUMBER: ${{ inputs.number }}
