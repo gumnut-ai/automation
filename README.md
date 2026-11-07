@@ -14,14 +14,16 @@ contains shared mechanics; repository policy and activation stay with callers.
 | `actions/codex-runtime` | No inputs; installs the packaged integrity-locked Codex runtime and exposes native detector discovery |
 | `native-toolchain/gh-aw-v0.89.21.cjs` | Three bounded compatibility operations for the pinned native compiler; see [the contract](native-toolchain/README.md) |
 | `dependency-maintenance/compile.cjs` | Run from a consumer root with `/path/to/gh-aw`; compiles and corrects the fixed `dependency-maintenance` workflow for gh-aw v0.89.21 |
-| `actions/pr-approval` | `operation`: `source`, `route`, `inspect`, or `publish`; explicit mode, bot identity, numbers and publisher token as applicable |
+| `actions/pr-approval` | `operation`: `source`, `route`, `inspect`, or `publish`; bot identity, numbers and publisher token as applicable; no activation setting |
 
 See each `action.yml` for exact input and output names.
 
 ## Use in a consumer
 
-Copy [the consumer example](examples/consumer/) into a repository. Select the same reviewed full commit SHA from this repository for every shared
-action reference in its workflows. Examples pin a published source revision;
+Copy [the consumer example](examples/consumer/) into a repository. Pin each
+component's action references to one reviewed full commit SHA. Approval actions
+can use a different revision from Claude actions, so an approval update need not
+upgrade the inference runtime. Examples pin a published source revision;
 verify the selected revision before deploying. Keep the filenames
 `claude-review.yml`, `pr-approval-request.yml` and `pr-approval-coordinator.yml`:
 request routing verifies those names and the native admission receipt step.
@@ -52,20 +54,30 @@ fails or times out. The execution check receives the fixed preparation failure
 category even when inference never starts; Docker stderr and credentials remain
 withheld. A failed preparation does not count as a completed review.
 
-For standing approval, start with `PR_APPROVAL_MODE=shadow` and the exact
-`PR_APPROVAL_BOT_LOGIN`. Assessment independently reads reviewer evidence and CI;
-it does not itself review code. An execution check alone is not a sign-off.
-Publication requires
-`PR_APPROVAL_MODE=publish` and a separate `pr-approval-publisher` environment.
-Configure that environment to admit only the protected default branch, with
-required human reviewers as appropriate. Store `PR_APPROVAL_APP_ID` and
-`PR_APPROVAL_APP_PRIVATE_KEY` there. The App installation needs Contents write
+Standing approval runs automatically when the consumer workflows and reviewer
+App are installed and its publisher credentials are provisioned. There is no
+separate activation mode. Set `PR_APPROVAL_BOT_LOGIN` to the App's exact identity;
+this identifies the reviewer for duplicate suppression and publication readback.
+Assessment independently reads reviewer evidence and CI; it does not itself
+review code. An execution check alone is not a sign-off.
+
+Before merging a new consumer, provision a separate `pr-approval-publisher`
+environment restricted to the protected default branch, with required human
+reviewers as appropriate. Store `PR_APPROVAL_APP_ID` and
+`PR_APPROVAL_APP_PRIVATE_KEY` there. Referencing a missing environment in a job
+can create an unprotected empty environment; the workflow does not provision its
+protection or credentials. The App installation needs Contents write
 for approvals that count toward protected-branch requirements; the runtime
 installation token requests only Pull requests write, scoped to the intended
 repository. Only the publisher job mints its token, then
 reassesses immediately before publishing. Never pass that token to assessment or
-inference. These examples do not configure environment protection or enable any
-reviewer or publisher.
+inference. A missing installation or credential cannot produce a publisher
+token or approval. These examples do not install the App or provision its
+credentials or environment protection. Pause approvals with GitHub's native
+workflow disable control on both approval workflows, cancelling active runs
+separately; uninstalling the reviewer App also revokes publication access.
+Neither action dismisses approvals already submitted. Legacy activation-mode
+variables no longer affect these actions; remove them when updating consumers.
 
 ## Native daemon human review handoff
 
@@ -294,13 +306,14 @@ add private-helper dependencies. Caller-specific design and evaluation records
 belong in the caller's documentation.
 
 A shared change does not update consumers. Review its diff, run validation, then
-update all shared pins in one consumer PR. Keep policy, gates and environment
-protection local. Preserve existing activation gates and modes during migration.
-For new installations, start with review disabled and approval in shadow mode;
-verify admission, rejection, execution reporting and review evidence before any
-separate activation decision. Roll back by restoring the previous reviewed SHA
-in every shared action reference. Disable the caller gate or publication mode to
-stop new work while investigating; already-running jobs require cancellation.
+update the affected component's pins together in one consumer PR. Keep policy,
+inference gates and environment protection local. New standing-approval
+installations publish automatically once their workflows, App credentials and
+review/CI prerequisites are ready; verify admission, rejection, review evidence
+and publication readback. Roll back by restoring the previous reviewed SHA and
+its compatible caller interface for that component. Disable both approval
+workflows to stop new approval work while investigating; inference retains its
+own caller gate. Already-running jobs require cancellation.
 Official Action/runtime pin changes need a coordinated consumer update.
 
 ## Validation

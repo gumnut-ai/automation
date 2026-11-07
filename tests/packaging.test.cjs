@@ -13,8 +13,8 @@ const { configuration, ACTION_SHA, RUNTIME_IMAGE } = require('../claude-review/c
 const expr = value => '${{ ' + value + ' }}';
 
 // Exercise the actual composite entry commands with Actions-style environment
-// data. Disabled gates must finish without a network request or credentials.
-test('packaged dispatch and approval source honor disabled consumer gates', t => {
+// data. Disabled Claude review and irrelevant approval events need no network request.
+test('packaged dispatch gate and irrelevant approval events finish without credentials', t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'automation-package-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const event = path.join(dir, 'event.json');
@@ -22,13 +22,14 @@ test('packaged dispatch and approval source honor disabled consumer gates', t =>
   fs.writeFileSync(event, JSON.stringify({ repository: { full_name: 'fixture/project', default_branch: 'main' } }));
   fs.writeFileSync(output, '');
   const env = { PATH: process.env.PATH, AUTOMATION_ROOT: root, GH_TOKEN: 'synthetic-unused-token',
-    GITHUB_REPOSITORY: 'fixture/project', GITHUB_EVENT_NAME: 'pull_request_target',
+    GITHUB_REPOSITORY: 'fixture/project', GITHUB_EVENT_NAME: 'push',
     GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output,
-    CLAUDE_REVIEW_ENABLED: 'false', PR_APPROVAL_MODE: '', OPERATION: 'source' };
+    CLAUDE_REVIEW_ENABLED: 'false', OPERATION: 'source' };
   for (const name of ['claude-dispatch', 'pr-approval']) {
     const command = action(name).match(/^      run: (node .+)$/m)?.[1];
     assert.ok(command, `${name} must expose its packaged Node entrypoint`);
-    execFileSync('bash', ['-c', command], { env, encoding: 'utf8' });
+    execFileSync('bash', ['-c', command], { env: { ...env,
+      GITHUB_EVENT_NAME: name === 'claude-dispatch' ? 'pull_request_target' : 'push' }, encoding: 'utf8' });
   }
   assert.match(fs.readFileSync(output, 'utf8'), /eligible=false/);
   const command = action('pr-approval').match(/^      run: (node .+)$/m)[1];
@@ -61,11 +62,14 @@ test('consumer review directly invokes pinned official Action with admitted conf
   assert.ok(workflow.includes("github.event.pull_request.base.ref == github.event.repository.default_branch"));
   assert.ok(workflow.includes("github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"));
   assert.ok(workflow.includes("if: steps.prepare.outputs.eligible == 'true'"));
-  const references = ['claude-review', 'pr-approval-request', 'pr-approval-coordinator']
-    .flatMap(name => [...example(name).matchAll(/gumnut-ai\/automation\/actions\/[\w-]+@([a-f0-9]{40})/g)]);
-  assert.equal(references.length, 7);
-  const pins = new Set(references.map(match => match[1]));
-  assert.equal(pins.size, 1, 'Upgrade every example action together');
+  const references = text => [...text.matchAll(/gumnut-ai\/automation\/actions\/[\w-]+@([a-f0-9]{40})/g)];
+  const claude = references(workflow);
+  const approval = references(example('pr-approval-request') + example('pr-approval-coordinator'));
+  assert.equal(claude.length, 3);
+  assert.equal(approval.length, 4);
+  const pins = new Set(claude.map(match => match[1]));
+  assert.equal(pins.size, 1, 'Upgrade Claude runtime actions together');
+  assert.equal(new Set(approval.map(match => match[1])).size, 1, 'Upgrade approval actions together');
   const [pin] = pins;
   for (const name of ['claude-dispatch', 'claude-prepare', 'claude-report']) {
     assert.ok(workflow.includes(`gumnut-ai/automation/actions/${name}@${pin}`));
@@ -88,7 +92,7 @@ test('approval example keeps native admission receipt and separates protected pu
   assert.ok(publication);
   assert.doesNotMatch(assessment + request, /secrets\.|publish-token:|create-github-app-token/);
   assert.match(publication, /environment: pr-approval-publisher/);
-  assert.match(publication, /vars\.PR_APPROVAL_MODE == 'publish'/);
+  assert.doesNotMatch(workflow + request + action('pr-approval'), /PR_APPROVAL_MODE|inputs\.mode/);
   assert.match(publication, /needs\.assess\.outputs\.actionable == 'true'/);
   assert.match(publication, /operation: publish/);
   assert.ok(publication.includes('publish-token: ' + expr('steps.app.outputs.token')));
