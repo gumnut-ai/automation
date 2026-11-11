@@ -43,7 +43,12 @@ const codexLayout = line => /^(?:<\/?(?:details|summary|p|div)\b[^>]*>|<br\s*\/?
 // optional short status such as "✅ Completed".
 const codexSummaryTitle = line => /^(?:#{1,6}\s*)?(?:<details\b[^>]*>\s*)?(?:<summary>\s*)?(?:<(?:strong|b)>|\*\*)?\s*(?:\S{1,2}\s*)?Codex Review Summary\s*(?:<\/(?:strong|b)>|\*\*)?\s*(?:[:\-–—]\s*(?:[^\sA-Za-z0-9<]{1,4}\s*)?(?:\*\*)?[A-Za-z]+(?:[ -][A-Za-z]+)?(?:\*\*)?)?\s*(?:<\/summary>)?$/i.test(line);
 const codexTableRule = line => /^\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*$/.test(line);
-const codexTableHeader = line => /^\|\s*Review\s*\|\s*Status\s*\|/i.test(line);
+// Whole-line matches only: a matching prefix must not carry appended text.
+const codexTableHeader = line => {
+  const cells = /^\|.*\|$/.test(line) && line.slice(1, -1).split('|').map(cell => cell.trim());
+  return cells && cells.length >= 3 && /^Review$/i.test(cells[0]) && /^Status$/i.test(cells[1]) && cells.every(cell => /^(?:Review(?: (?:type|kind|trigger))?|Status|State|Commit|SHA|Trigger(?:ed by)?|Requested by|Time|Started|Updated|Result)$/i.test(cell));
+};
+const codexSummaryIntro = line => /^(?:This comment shows )?(?:the )?latest Codex review activity(?: (?:on|for) this (?:pull request|PR))?\.?$/i.test(line);
 // A review row names a review kind in its first cell. Status, time, commit
 // (or a placeholder) and trigger vary, but a cell is a short label, never a
 // sentence.
@@ -51,7 +56,7 @@ function codexSummaryRow(line) {
   if (!/^\|.*\|$/.test(line)) return false;
   // A failed run appends a retry note after <br/>, ending in "try again".
   const cells = line.slice(1, -1).split('|').map(cell => cell.replace(/<relative-time\b[^>]*>[^<]*<\/relative-time>/gi, '').replace(/<br\s*\/?>[^<]*`@codex review`[^<]*\btry again\.?\s*$/i, '').trim());
-  return cells.length >= 3 && /\bReview\b/i.test(cells[0]) && cells.every(cell => cell.length <= 60 && !/[;!?]|\.(?!\d)/.test(cell));
+  return cells.length >= 3 && /\b[A-Za-z]+\s+Review\b/i.test(cells[0].replace(/\*\*/g, '')) && cells.every(cell => cell.length <= 60 && !/[;!?]|\.(?!\d)/.test(cell));
 }
 function codexActivity(body) {
   if (!codexSummaryMarker.test(body)) return false;
@@ -61,7 +66,7 @@ function codexActivity(body) {
       if (!codexState(line) || ++states > 1) return false;
       continue;
     }
-    if (codexLayout(line) || codexTableRule(line) || codexTableHeader(line) || /\blatest Codex review activity\b/i.test(line)) continue;
+    if (codexLayout(line) || codexTableRule(line) || codexTableHeader(line) || codexSummaryIntro(line)) continue;
     if (codexSummaryTitle(line)) title = true;
     else if (codexSummaryRow(line)) rows++;
     else return false;
