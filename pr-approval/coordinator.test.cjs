@@ -243,9 +243,10 @@ test('authenticated activity tables preserve standing decisions and cannot estab
     assert.equal((await evaluate(fixture({ comments: [claude('concerns'), codex(), activity] }))).decision, 'concerns');
   }
 });
-test('automatic activity tolerates trigger wording but rejects substantive appended feedback', async () => {
+test('automatic activity accepts known triggers but rejects unknown triggers and appended feedback', async () => {
   const renamed = comment('chatgpt-codex-connector[bot]', hostedCodex.automaticActivity.replace('| PR opened |', '| Opened by contributor |'), 4);
-  assert.equal((await evaluate(fixture({ comments: [claude(), codex(), renamed] }))).decision, 'approve');
+  assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', hostedCodex.automaticActivity, 4)] }))).decision, 'approve');
+  assert.equal((await evaluate(fixture({ comments: [claude(), codex(), renamed] }))).decision, 'waiting');
   for (const body of [hostedCodex.automaticActivity + '\nUnexpected substantive feedback', hostedCodex.automaticActivity + '\n[P1] A remaining concern']) {
     const activity = comment('chatgpt-codex-connector[bot]', body, 4);
     assert.equal((await evaluate(fixture({ comments: [claude(), codex(), activity] }))).decision, /\bP[012]\b/.test(body) ? 'concerns' : 'waiting');
@@ -413,8 +414,8 @@ test('summary variants are activity, and a later summary edit keeps a clean', as
     wrapped.replace(intro, 'Latest Codex review activity for this PR'),
     wrapped.replace('| Review | Status | Commit | Review trigger |', '| Review | Status | Commit | Trigger |'),
     wrapped.replace(footer, ''),
-    wrapped.replace(row, `${row}\n| 🛡️ **Security Review** | ⏳ **Queued** | \`5f0c2a9e71\` | Automatic review on push |`),
-    wrapped.replace(row, '| Code review | Done | 5f0c2a9 | Requested in a comment |'),
+    wrapped.replace(row, `${row}\n| 🛡️ **Security Review** | ⏳ **Queued** | \`5f0c2a9e71\` | PR opened |`),
+    wrapped.replace(row, '| Code review | Done | 5f0c2a9 | manual request |'),
     wrapped.replace(row, row.replace('`5f0c2a9`', '—')),
     wrapped.replace(row, row.replace('✅ **Completed**', '⚠️ **Failed**').replace('</relative-time>', '</relative-time><br/>We couldn’t complete this review. Comment `@codex review` to try again.')),
     wrapped.replace(/\n/g, '\r\n'),
@@ -445,6 +446,8 @@ test('summary variants are activity, and a later summary edit keeps a clean', as
     wrapped.replace(row, row.replace('</relative-time>', '</relative-time><br/>Data loss remains in the retry path.')),
     wrapped.replace(row, row.replace('</relative-time>', '</relative-time><br/>The retry path loses data. Comment `@codex review` to try again.')),
     wrapped.replace(row, row.replace('✅ **Completed**', '✅ **Completed** with data loss in the retry path')),
+    wrapped.replace(row, row.replace('Manual request', 'The retry path loses data')),
+    wrapped.replace(row, row.replace('Manual request', 'Data loss remains')),
     wrapped.replace(row, ''),
     wrapped.replace('<!-- codex-pull-request-review-summary -->', ''),
     wrapped.replace('codex-review-state:v1 {', 'codex-review-state:v1 [1] {'),

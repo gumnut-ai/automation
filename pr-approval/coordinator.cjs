@@ -55,7 +55,8 @@ const codexRetryNote = /<br\s*\/?>\s*(?:We couldn['’]t complete this review\.|
 const codexRowKind = cell => /^(?:[^\sA-Za-z0-9*]{1,4}\s*)?(?:\*\*)?[A-Za-z]+ Review(?:\*\*)?$/i.test(cell);
 const codexRowStatus = cell => /^(?:[^\sA-Za-z0-9*]{1,4}\s*)?(?:\*\*)?[A-Za-z]+(?: [A-Za-z]+)?(?:\*\*)?(?: since)?$/i.test(cell);
 const codexRowCommit = cell => /^(?:`?[0-9a-f]{7,40}`?|[—–-])$/i.test(cell);
-const codexRowTrigger = cell => cell.length <= 60 && !/[;!?]|\.(?!\d)/.test(cell);
+// The service fills the trigger from a fixed set; an unknown label is unclear.
+const codexRowTrigger = cell => /^(?:Manual request|PR opened|Draft marked ready)$/i.test(cell);
 function codexSummaryRow(line) {
   if (!/^\|.*\|$/.test(line)) return false;
   const cells = line.slice(1, -1).split('|').map(cell => cell.replace(/<relative-time\b[^>]*>[^<]*<\/relative-time>/gi, '').trim());
