@@ -12,26 +12,22 @@ const restLogin = author => author?.__typename === 'Bot' && !author.login?.endsW
 const markedSignificant = body => /<!-- gumnut-review-finding\/v1 severity=significant -->/i.test(body || '');
 const significant = (body, login) => login === CLAUDE ? markedSignificant(body) || /should be fixed before merge/i.test(body || '') : login === CODEX && /\bP[012]\b/.test(body || '');
 const advisory = (body, login) => login === CLAUDE ? /^(?:\*\*)?Claude review[^\n]*\badvisory\b/i.test(body || '') : login === CODEX && /^(?:(?:\*\*)?\[P3\](?:\s|$)|\*\*<sub><sub>!\[P3 Badge\]\(https:\/\/img\.shields\.io\/badge\/P3-[^()\s]+\)<\/sub><\/sub>\s)/.test(body || '') && !significant(body, login);
-const normalizeSpace = text => text.replace(/\s+/g, ' ').trim();
-// Observed hosted output, deliberately narrow. Changed boilerplate is unknown
-// evidence until verified; it must not hide appended substantive feedback.
-const codexFooters = [
-  `<details> <summary>ℹ️ About Codex in GitHub</summary> <br/> [Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you - Open a pull request for review - Mark a draft as ready - Comment "@codex review". If Codex has suggestions, it will comment; otherwise it will react with 👍. Codex can also answer questions or update the PR. Try commenting "@codex address that feedback". </details>`,
-  `<details> <summary>ℹ️ About Codex in GitHub</summary> <br/> [Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you - Open a pull request for review - Mark a draft as ready - Comment "@codex review" or "@codex security review". Codex reacts with 👀 while any review is running, comments if it has suggestions, and reacts with 👍 once all reviews finish with no findings. </details>`,
-].map(normalizeSpace);
-// Hosted Codex prefixes reviews and clean results with an invisible receipt
-// line. Only that exact leading line is metadata; the rest is still classified.
-const codexUnmarked = body => body.replace(/^<!-- codex-review-receipt:v1 -->\r?\n/, '');
-function codexContent(body) {
-  const start = body.indexOf('<details>');
-  if (start < 0) return body.trim();
-  return codexFooters.includes(normalizeSpace(body.slice(start))) ? body.slice(0, start).trim() : null;
-}
-// The summary may carry one invisible machine-state comment after its header.
-// It is not a verdict, but it must be a single well-formed JSON object that
-// cannot close the comment early and expose text.
-function codexState(line) {
-  const match = line?.match(/^<!-- codex-review-state:v1 (\{.*\}) -->$/);
+// Hosted Codex output is model-written: markup, emoji, status words, closing
+// sentences and help footers vary between runs. Recognize each output kind by
+// its stable signals and tolerate that variation, but never let it hide a
+// finding: any severity marker blocks clean, and a line that fits none of the
+// kind's parts leaves the body unclear rather than silently ignored.
+const codexFinding = body => /\bP[0-3]\b/.test(body || '');
+// A collapsed "About Codex" help block is boilerplate whatever its wording.
+const codexFooter = /<details\b[^>]*>\s*<summary>[^<]*\bAbout Codex\b[^<]*<\/summary>[\s\S]*?<\/details>/gi;
+// Only Codex's own receipt and summary markers are metadata; any other hidden
+// comment could carry text and stays unexplained.
+const codexReceipt = /^\s*<!--\s*codex-review-receipt:v\d+\s*-->/;
+const codexSummaryMarker = /^\s*<!--\s*codex-pull-request-review-summary\s*-->/;
+// The summary may carry an invisible machine state. It is never a verdict, but
+// it must be one well-formed JSON object that cannot end the comment early.
+function codexState(comment) {
+  const match = comment.match(/^<!--\s*codex-review-state:v\d+\s+(\{.*\})\s*-->$/);
   if (!match || /[<>]/.test(match[1])) return false;
   try {
     const state = JSON.parse(match[1]);
@@ -40,11 +36,101 @@ function codexState(line) {
     return false;
   }
 }
+const codexLines = body => body.replace(codexFooter, '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+// Layout-only markup carries no text of its own.
+const codexLayout = line => /^(?:<\/?(?:details|summary|p|div)\b[^>]*>|<br\s*\/?>|<hr\s*\/?>|-{3,}|\*{3,})$/i.test(line);
+// "Codex Review Summary" as a heading, bold text or collapsed <summary>, with an
+// optional short status such as "✅ Completed".
+const codexSummaryTitle = line => /^(?:#{1,6}\s*)?(?:<details\b[^>]*>\s*)?(?:<summary>\s*)?(?:<(?:strong|b)>|\*\*)?\s*(?:\S{1,2}\s*)?Codex Review Summary\s*(?:<\/(?:strong|b)>|\*\*)?\s*(?:[:\-–—]\s*(?:[^\sA-Za-z0-9<]{1,4}\s*)?(?:\*\*)?[A-Za-z]+(?:[ -][A-Za-z]+)?(?:\*\*)?)?\s*(?:<\/summary>)?$/i.test(line);
+const codexTableRule = line => /^\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*$/.test(line);
+// Whole-line matches only: a matching prefix must not carry appended text.
+const codexTableHeader = line => {
+  const cells = /^\|.*\|$/.test(line) && line.slice(1, -1).split('|').map(cell => cell.trim());
+  return cells && cells.length >= 3 && /^Review$/i.test(cells[0]) && /^Status$/i.test(cells[1]) && cells.every(cell => /^(?:Review(?: (?:type|kind|trigger))?|Status|State|Commit|SHA|Trigger(?:ed by)?|Requested by|Time|Started|Updated|Result)$/i.test(cell));
+};
+const codexSummaryIntro = line => /^(?:This comment shows )?(?:the )?latest Codex review activity(?: (?:on|for) this (?:pull request|PR))?\.?$/i.test(line);
+// A review row: kind, status (with an optional time and a failed run's retry
+// note), then commit and trigger cells. Each cell must match its whole shape.
+const codexRetryNote = /<br\s*\/?>\s*(?:We couldn['’]t complete this review\.|A repository needed for this review could not be found\. Check that it still exists and Codex has access, then) [Cc]omment `@codex review` to try again\.$/;
+const codexRowKind = cell => /^(?:[^\sA-Za-z0-9*]{1,4}\s*)?(?:\*\*)?[A-Za-z]+ Review(?:\*\*)?$/i.test(cell);
+const codexRowStatus = cell => /^(?:[^\sA-Za-z0-9*]{1,4}\s*)?(?:\*\*)?[A-Za-z]+(?: [A-Za-z]+)?(?:\*\*)?(?: since)?$/i.test(cell);
+const codexRowCommit = cell => /^(?:`?[0-9a-f]{7,40}`?|[—–-])$/i.test(cell);
+// The service fills the trigger from a fixed set; an unknown label is unclear.
+const codexRowTrigger = cell => /^(?:Manual request|PR opened|Draft marked ready)$/i.test(cell);
+function codexSummaryRow(line) {
+  if (!/^\|.*\|$/.test(line)) return false;
+  const cells = line.slice(1, -1).split('|').map(cell => cell.replace(/<relative-time\b[^>]*>[^<]*<\/relative-time>/gi, '').trim());
+  if (cells.length < 3 || !codexRowKind(cells[0])) return false;
+  const status = cells[1].replace(codexRetryNote, '').trim();
+  return codexRowStatus(status) && cells.slice(2).every(cell => codexRowCommit(cell) || codexRowTrigger(cell));
+}
 function codexActivity(body) {
-  const lines = body?.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  if (codexState(lines?.[1])) lines.splice(1, 1);
-  if (!lines || lines.length < 6 || lines[0] !== '<!-- codex-pull-request-review-summary -->' || lines[1] !== '## Codex Review Summary' || lines[2] !== 'This comment shows the latest Codex review activity on this pull request.' || lines[3] !== '| Review | Status | Commit | Review trigger |' || lines[4] !== '| --- | --- | --- | --- |') return false;
-  return lines.slice(5).every(line => /^\| 📝 \*\*Code Review\*\* \| (?:✅|🔄|👀|⏳|❌|⚠️) \*\*(?:Completed|Running|Queued|Failed|Cancelled)\*\*(?: (?:since )?<relative-time datetime="(\d{4}-\d{2}-\d{2}T[0-9:.]+Z)">\1<\/relative-time>)? \| `[0-9a-f]{7,40}` \| (?:Manual request|Pull request opened|PR opened|Automatic review) \|$/.test(line));
+  if (!codexSummaryMarker.test(body)) return false;
+  let title = false, rows = 0, states = 0;
+  for (const line of codexLines(body.replace(codexSummaryMarker, ''))) {
+    if (/^<!--[\s\S]*-->$/.test(line)) {
+      if (!codexState(line) || ++states > 1) return false;
+      continue;
+    }
+    if (codexLayout(line) || codexTableRule(line) || codexTableHeader(line) || codexSummaryIntro(line)) continue;
+    if (codexSummaryTitle(line)) title = true;
+    else if (codexSummaryRow(line)) rows++;
+    else return false;
+  }
+  return title && rows > 0;
+}
+const codexHeading = line => /^(?:#{1,6}\s*)?(?:\S{1,2}\s*)?(?:\*\*)?Codex Review(?:\*\*)?:?$/i.test(line);
+const codexCommit = line => line.match(/^(?:[-*]\s*)?(?:\*\*)?Reviewed commit:?(?:\*\*)?:?\s*`?([0-9a-fA-F]{7,40})`?\.?$/i)?.[1];
+const codexSuggests = body => /\bHere are some (?:automated (?:review )?)?suggestions\b/i.test(body);
+// Codex's clean declaration plus at most one reviewed commit; older output
+// omits the commit. Its closing sentence and footer vary; any other line is
+// unexplained.
+function codexClean(body) {
+  let declared = 0;
+  const commits = [];
+  for (const line of codexLines(body.replace(codexReceipt, ''))) {
+    const commit = codexCommit(line);
+    if (commit) commits.push(commit);
+    else if (/^(?:\*\*)?(?:Codex(?: Review)?:?\s*(?:\*\*)?\s*)?(?:\S{1,2}\s*)?Didn['’]t find any major issues\b/i.test(line)) declared++;
+    else if (!codexHeading(line) && !codexLayout(line)) return null;
+  }
+  return declared === 1 && commits.length <= 1 ? { commit: commits[0] ?? null } : null;
+}
+// Service notices say Codex did not review: a usage limit, missing setup, or a
+// failed run with its error in a code block. They carry no verdict, so they
+// neither clear nor raise a concern.
+// Service notices are fixed templates; each line must match one whole, so
+// appended prose leaves the body unclear.
+const codexLink = String.raw`\[(?:Codex usage dashboard|settings|create an environment for this repo|create a Codex account and connect to github)\]\(https:\/\/chatgpt\.com\/codex\/[^)\s]*\)`;
+const codexNoticeLines = {
+  limit: [
+    new RegExp(String.raw`^You have reached your Codex usage limits(?: for code reviews)?\.(?: You can see your limits in the ${codexLink}\.)?$`, 'i'),
+    new RegExp(String.raw`^To continue using code reviews, (?:you can upgrade your account or )?add credits to your account and enable them for code reviews in your ${codexLink}\.$`, 'i'),
+  ],
+  setup: [new RegExp(String.raw`^To use Codex here, ${codexLink}\.?$`, 'i')],
+  error: [/^(?:Codex Review:\s*)?(?:Something went wrong|Codex couldn['’]t complete this request)\.(?: Try again later(?: by commenting [“"]@codex review[”"])?\.)?$/i],
+};
+function codexNotice(body) {
+  const lines = codexLines(body.replace(codexReceipt, ''));
+  const kind = Object.keys(codexNoticeLines).find(k => codexNoticeLines[k][0].test(lines[0] || ''));
+  if (!kind) return false;
+  let fenced = false, fences = 0;
+  for (const line of lines.slice(1)) {
+    if (/^```/.test(line)) { fenced = !fenced; fences++; continue; }
+    if (fenced ? kind === 'error' && fences === 1 && line.length <= 200 : codexNoticeLines[kind].slice(1).some(re => re.test(line)) || codexLayout(line)) continue;
+    return false;
+  }
+  return !fenced && fences <= 2;
+}
+// A suggestions wrapper whose only parts are its heading, intro and commit.
+function codexSuggestionWrapper(body) {
+  const commits = [];
+  for (const line of codexLines(body.replace(codexReceipt, ''))) {
+    const commit = codexCommit(line);
+    if (commit) commits.push(commit);
+    else if (!codexHeading(line) && !codexLayout(line) && !/^(?:Codex Review:\s*)?Here are some (?:automated (?:review )?)?suggestions(?: for this pull request)?\.?$/i.test(line)) return null;
+  }
+  return commits.length === 1 ? commits[0] : null;
 }
 
 function validate({ repo, number, bot }) {
@@ -247,21 +333,18 @@ function commentDecision(comment, login, kind = 'comment', findings = []) {
   }
   if (significant(body, login)) return { state: 'concerns', ...evidence };
   if (login === CODEX) {
+    // Findings take precedence over every other reading of the same body.
+    if (codexSuggests(body)) {
+      const wrapper = codexSuggestionWrapper(body);
+      if (kind === 'review' && wrapper && comment.commit_id?.toLowerCase().startsWith(wrapper.toLowerCase()) && findings.length && findings.every(c => advisory(c.body, login))) return { state: 'clean', ...evidence, kind: 'advisory-review' };
+      const commits = codexLines(body).map(codexCommit).filter(Boolean);
+      return { state: 'concerns', ...evidence, commit: commits.length === 1 ? commits[0] : evidence.commit };
+    }
     // Activity metadata is not a reviewer verdict. Every other nonempty source
     // body must be understood, rather than silently preserving an old clean.
-    const unmarked = codexUnmarked(body);
-    const content = codexContent(unmarked);
-    if (codexActivity(content)) return null;
-    // The explicit clean declaration is stable across observed responses; its
-    // human closing sentence varies. Separate paragraphs remain unclassified.
-    const clean = content?.match(/^Codex Review: Didn't find any major issues\.[^\r\n]*\r?\n+\*\*Reviewed commit:\*\*\s*`([0-9a-fA-F]{7,40})`$/);
-    if (clean) return { state: 'clean', ...evidence, commit: clean[1] };
-    const commits = [...unmarked.matchAll(/\*\*Reviewed commit:\*\*\s*`([0-9a-fA-F]{7,40})`/g)];
-    if (/^(?:\s*### 💡 Codex Review|Codex Review: Here are some suggestions\.)/.test(unmarked) && commits.length === 1) {
-      const wrapper = content?.match(/^(?:### 💡 Codex Review\n+Here are some automated review suggestions for this pull request\.|Codex Review: Here are some suggestions\.)\n+\*\*Reviewed commit:\*\*\s*`([0-9a-fA-F]{7,40})`$/);
-      if (kind === 'review' && wrapper && comment.commit_id?.startsWith(wrapper[1]) && findings.length && findings.every(c => advisory(c.body, login))) return { state: 'clean', ...evidence, kind: 'advisory-review' };
-      return { state: 'concerns', ...evidence, commit: commits[0][1] };
-    }
+    if (codexActivity(body) || codexNotice(body)) return null;
+    const clean = !codexFinding(body) && codexClean(body);
+    if (clean) return { state: 'clean', ...evidence, commit: clean.commit };
   }
   return body.trim() ? { state: 'malformed', ...evidence } : null;
 }
