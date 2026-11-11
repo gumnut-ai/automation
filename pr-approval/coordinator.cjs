@@ -49,14 +49,19 @@ const codexTableHeader = line => {
   return cells && cells.length >= 3 && /^Review$/i.test(cells[0]) && /^Status$/i.test(cells[1]) && cells.every(cell => /^(?:Review(?: (?:type|kind|trigger))?|Status|State|Commit|SHA|Trigger(?:ed by)?|Requested by|Time|Started|Updated|Result)$/i.test(cell));
 };
 const codexSummaryIntro = line => /^(?:This comment shows )?(?:the )?latest Codex review activity(?: (?:on|for) this (?:pull request|PR))?\.?$/i.test(line);
-// A review row names a review kind in its first cell. Status, time, commit
-// (or a placeholder) and trigger vary, but a cell is a short label, never a
-// sentence.
+// A review row: kind, status (with an optional time and a failed run's retry
+// note), then commit and trigger cells. Each cell must match its whole shape.
+const codexRetryNote = /<br\s*\/?>\s*(?:We couldn['’]t complete this review\.|A repository needed for this review could not be found\. Check that it still exists and Codex has access, then) [Cc]omment `@codex review` to try again\.$/;
+const codexRowKind = cell => /^(?:[^\sA-Za-z0-9*]{1,4}\s*)?(?:\*\*)?[A-Za-z]+ Review(?:\*\*)?$/i.test(cell);
+const codexRowStatus = cell => /^(?:[^\sA-Za-z0-9*]{1,4}\s*)?(?:\*\*)?[A-Za-z]+(?: [A-Za-z]+)?(?:\*\*)?(?: since)?$/i.test(cell);
+const codexRowCommit = cell => /^(?:`?[0-9a-f]{7,40}`?|[—–-])$/i.test(cell);
+const codexRowTrigger = cell => cell.length <= 60 && !/[;!?]|\.(?!\d)/.test(cell);
 function codexSummaryRow(line) {
   if (!/^\|.*\|$/.test(line)) return false;
-  // A failed run appends a retry note after <br/>, ending in "try again".
-  const cells = line.slice(1, -1).split('|').map(cell => cell.replace(/<relative-time\b[^>]*>[^<]*<\/relative-time>/gi, '').replace(/<br\s*\/?>[^<]*`@codex review`[^<]*\btry again\.?\s*$/i, '').trim());
-  return cells.length >= 3 && /\b[A-Za-z]+\s+Review\b/i.test(cells[0].replace(/\*\*/g, '')) && cells.every(cell => cell.length <= 60 && !/[;!?]|\.(?!\d)/.test(cell));
+  const cells = line.slice(1, -1).split('|').map(cell => cell.replace(/<relative-time\b[^>]*>[^<]*<\/relative-time>/gi, '').trim());
+  if (cells.length < 3 || !codexRowKind(cells[0])) return false;
+  const status = cells[1].replace(codexRetryNote, '').trim();
+  return codexRowStatus(status) && cells.slice(2).every(cell => codexRowCommit(cell) || codexRowTrigger(cell));
 }
 function codexActivity(body) {
   if (!codexSummaryMarker.test(body)) return false;
