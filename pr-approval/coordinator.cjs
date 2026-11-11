@@ -93,16 +93,25 @@ function codexClean(body) {
 // Service notices say Codex did not review: a usage limit, missing setup, or a
 // failed run with its error in a code block. They carry no verdict, so they
 // neither clear nor raise a concern.
+// Service notices are fixed templates; each line must match one whole, so
+// appended prose leaves the body unclear.
+const codexLink = String.raw`\[(?:Codex usage dashboard|settings|create an environment for this repo|create a Codex account and connect to github)\]\(https:\/\/chatgpt\.com\/codex\/[^)\s]*\)`;
+const codexNoticeLines = {
+  limit: [
+    new RegExp(String.raw`^You have reached your Codex usage limits(?: for code reviews)?\.(?: You can see your limits in the ${codexLink}\.)?$`, 'i'),
+    new RegExp(String.raw`^To continue using code reviews, (?:you can upgrade your account or )?add credits to your account and enable them for code reviews in your ${codexLink}\.$`, 'i'),
+  ],
+  setup: [new RegExp(String.raw`^To use Codex here, ${codexLink}\.?$`, 'i')],
+  error: [/^(?:Codex Review:\s*)?(?:Something went wrong|Codex couldn['’]t complete this request)\.(?: Try again later(?: by commenting [“"]@codex review[”"])?\.)?$/i],
+};
 function codexNotice(body) {
   const lines = codexLines(body.replace(codexReceipt, ''));
-  const kind = /^You have reached your Codex usage limits\b/i.test(lines[0] || '') ? 'limit'
-    : /^To use Codex here,/i.test(lines[0] || '') ? 'setup'
-    : /^(?:Codex Review:\s*)?(?:Something went wrong|Codex couldn['’]t complete this request)\b/i.test(lines[0] || '') ? 'error' : null;
+  const kind = Object.keys(codexNoticeLines).find(k => codexNoticeLines[k][0].test(lines[0] || ''));
   if (!kind) return false;
   let fenced = false, fences = 0;
   for (const line of lines.slice(1)) {
     if (/^```/.test(line)) { fenced = !fenced; fences++; continue; }
-    if (fenced ? kind === 'error' && fences === 1 && line.length <= 200 : /\(https:\/\/chatgpt\.com\/codex\/[^)\s]*\)/.test(line) || codexLayout(line)) continue;
+    if (fenced ? kind === 'error' && fences === 1 && line.length <= 200 : codexNoticeLines[kind].slice(1).some(re => re.test(line)) || codexLayout(line)) continue;
     return false;
   }
   return !fenced && fences <= 2;

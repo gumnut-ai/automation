@@ -490,6 +490,14 @@ test('Codex service notices are activity, never a verdict', async () => {
     assert.equal((await evaluate(fixture({ comments: [claude(), notice] }))).decision, 'waiting', body);
     assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body.replace(/\.$|(\n\n<details>)/, '.\nOne regression remains in the retry path.$1'), 4)] }))).decision, 'waiting', body);
   }
+  // Prose on a notice line, or on a line carrying a Codex link, is not a notice.
+  for (const body of [
+    "Codex couldn't complete this request. The retry path loses data and must be fixed before merge.",
+    "Codex couldn't complete this request. Try again later. The retry path loses data.",
+    'To use Codex here, [create an environment for this repo](https://chatgpt.com/codex/cloud/settings/environments). The retry path also loses data.',
+    `${notices[0]}\nThe retry path loses data; see [details](https://chatgpt.com/codex/cloud/settings/usage).`,
+    notices[0].replace('dashboard](', 'dashboard; the retry path loses data](').replace('Codex usage dashboard; the retry path loses data', 'the retry path loses data'),
+  ]) assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, 'waiting', body);
   const twoBlocks = notices.find(n => n.includes('```')).replace('```\n\n<details>', '```\n\n```\nsecond block\n```\n\n<details>');
   assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', twoBlocks, 4)] }))).decision, 'waiting');
 });
