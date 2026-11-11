@@ -22,6 +22,11 @@ const codexFooters = [
 // Hosted Codex prefixes reviews and clean results with an invisible receipt
 // line. Only that exact leading line is metadata; the rest is still classified.
 const codexUnmarked = body => body.replace(/^<!-- codex-review-receipt:v1 -->\r?\n/, '');
+// Hosted Codex may instead collapse the whole summary into one <details> block
+// whose <summary> carries the heading. Rewrite only that exact wrapper to the
+// heading form; codexContent and codexActivity then check the rest unchanged.
+const codexWrappedSummary = /^(<!-- codex-pull-request-review-summary -->\r?\n(?:<!-- codex-review-state:v1 [^\r\n]* -->\r?\n)?)\s*<details>\r?\n<summary><strong>Codex Review Summary<\/strong>: (?:✅|🔄|👀|⏳|❌|⚠️) (?:Completed|Running|Queued|Failed|Cancelled)<\/summary>\r?\n([\s\S]*)\r?\n<\/details>\s*$/;
+const codexUnwrapped = body => body.replace(codexWrappedSummary, '$1\n## Codex Review Summary\n$2');
 function codexContent(body) {
   const start = body.indexOf('<details>');
   if (start < 0) return body.trim();
@@ -250,7 +255,7 @@ function commentDecision(comment, login, kind = 'comment', findings = []) {
     // Activity metadata is not a reviewer verdict. Every other nonempty source
     // body must be understood, rather than silently preserving an old clean.
     const unmarked = codexUnmarked(body);
-    const content = codexContent(unmarked);
+    const content = codexContent(codexUnwrapped(unmarked));
     if (codexActivity(content)) return null;
     // The explicit clean declaration is stable across observed responses; its
     // human closing sentence varies. Separate paragraphs remain unclassified.
