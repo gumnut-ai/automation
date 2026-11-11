@@ -413,6 +413,8 @@ test('summary variants are activity, and a later summary edit keeps a clean', as
     wrapped.replace(footer, ''),
     wrapped.replace(row, `${row}\n| 🛡️ **Security Review** | ⏳ **Queued** | \`5f0c2a9e71\` | Automatic review on push |`),
     wrapped.replace(row, '| Code review | Done at 04:08 UTC | 5f0c2a9 | Requested in a comment |'),
+    wrapped.replace(row, row.replace('`5f0c2a9`', '—')),
+    wrapped.replace(row, row.replace('✅ **Completed**', '⚠️ **Failed**').replace('</relative-time>', '</relative-time><br/>We couldn’t complete this review. Comment `@codex review` to try again.')),
     wrapped.replace(/\n/g, '\r\n'),
   ];
   for (const body of variants) {
@@ -435,6 +437,7 @@ test('summary variants are activity, and a later summary edit keeps a clean', as
     `${wrapped}\nPotential data loss remains.`,
     wrapped.replace(/\n<\/details>$/, '\nPotential data loss remains.\n</details>'),
     wrapped.replace(row, `${row}\nPotential data loss remains.`),
+    wrapped.replace(row, row.replace('</relative-time>', '</relative-time><br/>Data loss remains in the retry path.')),
     wrapped.replace(row, ''),
     wrapped.replace('<!-- codex-pull-request-review-summary -->', ''),
     wrapped.replace('codex-review-state:v1 {', 'codex-review-state:v1 [1] {'),
@@ -459,11 +462,31 @@ test('clean receipt variants sign off for their reviewed commit', async () => {
     [hostedCodex.receiptClean.replace(footer, ''), 'b81d5145c3'],
     [hostedCodex.receiptClean.replace(/\n/g, '\r\n'), 'b81d5145c3'],
     [hostedCodex.cleanVariant, 'c4234ad686'],
+    // Older hosted output omitted the reviewed commit.
+    [hostedCodex.receiptClean.replace('**Reviewed commit:** `b81d5145c3`', ''), null],
   ]) {
     const result = await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', body, 2)] }));
     assert.equal(result.decision, 'approve', body);
     assert.equal(result.signoffs.codex.commit, commit, body);
   }
+});
+test('Codex service notices are activity, never a verdict', async () => {
+  const footer = hostedCodex.receiptClean.slice(hostedCodex.receiptClean.indexOf('<details>'));
+  const notices = [
+    'You have reached your Codex usage limits for code reviews. You can see your limits in the [Codex usage dashboard](https://chatgpt.com/codex/cloud/settings/usage).\nTo continue using code reviews, add credits to your account and enable them for code reviews in your [settings](https://chatgpt.com/codex/cloud/settings/code-review).',
+    'To use Codex here, [create an environment for this repo](https://chatgpt.com/codex/cloud/settings/environments).',
+    'To use Codex here, [create a Codex account and connect to github](https://chatgpt.com/codex/cloud/settings/connectors).',
+    "Codex couldn't complete this request. Try again later.",
+    `Codex Review: Something went wrong. Try again later by commenting “@codex review”.\n\n\`\`\`\nFailed to set up container\n\`\`\`\n\n${footer}`,
+  ];
+  for (const body of notices) {
+    const notice = comment('chatgpt-codex-connector[bot]', body, 4);
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), notice] }))).decision, 'approve', body);
+    assert.equal((await evaluate(fixture({ comments: [claude(), notice] }))).decision, 'waiting', body);
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body.replace(/\.$|(\n\n<details>)/, '.\nOne regression remains in the retry path.$1'), 4)] }))).decision, 'waiting', body);
+  }
+  const twoBlocks = notices.find(n => n.includes('```')).replace('```\n\n<details>', '```\n\n```\nsecond block\n```\n\n<details>');
+  assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', twoBlocks, 4)] }))).decision, 'waiting');
 });
 test('a Codex body carrying findings never reads as clean', async () => {
   const clean = hostedCodex.receiptClean;
@@ -479,7 +502,6 @@ test('a Codex body carrying findings never reads as clean', async () => {
     clean.replace(declaration, `${declaration}\n\nOne regression remains in the retry path.`),
     clean.replace(declaration, `${declaration}\n${declaration}`),
     clean.replace('**Reviewed commit:** `b81d5145c3`', '**Reviewed commit:** `b81d5145c3`\n**Reviewed commit:** `c4234ad686`'),
-    clean.replace('**Reviewed commit:** `b81d5145c3`', ''),
     `<!-- codex-pull-request-review-summary -->\n${clean}`,
     clean.replace(declaration, `${declaration}\n<!-- hidden -->`),
   ]) {

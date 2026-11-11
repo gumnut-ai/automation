@@ -44,13 +44,14 @@ const codexLayout = line => /^(?:<\/?(?:details|summary|p|div)\b[^>]*>|<br\s*\/?
 const codexSummaryTitle = line => /^(?:#{1,6}\s*)?(?:<details\b[^>]*>\s*)?(?:<summary>\s*)?(?:<(?:strong|b)>|\*\*)?\s*(?:\S{1,2}\s*)?Codex Review Summary\s*(?:<\/(?:strong|b)>|\*\*)?\s*(?:[:\-–—]\s*(?:[^\sA-Za-z0-9<]{1,4}\s*)?(?:\*\*)?[A-Za-z]+(?:[ -][A-Za-z]+)?(?:\*\*)?)?\s*(?:<\/summary>)?$/i.test(line);
 const codexTableRule = line => /^\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*$/.test(line);
 const codexTableHeader = line => /^\|\s*Review\s*\|\s*Status\s*\|/i.test(line);
-// A review row: a review kind in the first cell and a commit in a later one.
-// Status, time and trigger wording vary, but a cell is a short label, never a
+// A review row names a review kind in its first cell. Status, time, commit
+// (or a placeholder) and trigger vary, but a cell is a short label, never a
 // sentence.
 function codexSummaryRow(line) {
   if (!/^\|.*\|$/.test(line)) return false;
-  const cells = line.slice(1, -1).split('|').map(cell => cell.replace(/<relative-time\b[^>]*>[^<]*<\/relative-time>/gi, '').trim());
-  return cells.length >= 3 && /\bReview\b/i.test(cells[0]) && cells.slice(1).some(cell => /^`?[0-9a-f]{7,40}`?$/.test(cell)) && cells.every(cell => cell.length <= 60 && !/[;!?]|\.(?!\d)/.test(cell));
+  // A failed run appends a retry note after <br/>, ending in "try again".
+  const cells = line.slice(1, -1).split('|').map(cell => cell.replace(/<relative-time\b[^>]*>[^<]*<\/relative-time>/gi, '').replace(/<br\s*\/?>[^<]*`@codex review`[^<]*\btry again\.?\s*$/i, '').trim());
+  return cells.length >= 3 && /\bReview\b/i.test(cells[0]) && cells.every(cell => cell.length <= 60 && !/[;!?]|\.(?!\d)/.test(cell));
 }
 function codexActivity(body) {
   if (!codexSummaryMarker.test(body)) return false;
@@ -70,8 +71,9 @@ function codexActivity(body) {
 const codexHeading = line => /^(?:#{1,6}\s*)?(?:\S{1,2}\s*)?(?:\*\*)?Codex Review(?:\*\*)?:?$/i.test(line);
 const codexCommit = line => line.match(/^(?:[-*]\s*)?(?:\*\*)?Reviewed commit:?(?:\*\*)?:?\s*`?([0-9a-fA-F]{7,40})`?\.?$/i)?.[1];
 const codexSuggests = body => /\bHere are some (?:automated (?:review )?)?suggestions\b/i.test(body);
-// Codex's clean declaration plus exactly one reviewed commit. Its closing
-// sentence and footer vary; any other line is unexplained.
+// Codex's clean declaration plus at most one reviewed commit; older output
+// omits the commit. Its closing sentence and footer vary; any other line is
+// unexplained.
 function codexClean(body) {
   let declared = 0;
   const commits = [];
@@ -81,7 +83,24 @@ function codexClean(body) {
     else if (/^(?:\*\*)?(?:Codex(?: Review)?:?\s*(?:\*\*)?\s*)?(?:\S{1,2}\s*)?Didn['’]t find any major issues\b/i.test(line)) declared++;
     else if (!codexHeading(line) && !codexLayout(line)) return null;
   }
-  return declared === 1 && commits.length === 1 ? commits[0] : null;
+  return declared === 1 && commits.length <= 1 ? { commit: commits[0] ?? null } : null;
+}
+// Service notices say Codex did not review: a usage limit, missing setup, or a
+// failed run with its error in a code block. They carry no verdict, so they
+// neither clear nor raise a concern.
+function codexNotice(body) {
+  const lines = codexLines(body.replace(codexReceipt, ''));
+  const kind = /^You have reached your Codex usage limits\b/i.test(lines[0] || '') ? 'limit'
+    : /^To use Codex here,/i.test(lines[0] || '') ? 'setup'
+    : /^(?:Codex Review:\s*)?(?:Something went wrong|Codex couldn['’]t complete this request)\b/i.test(lines[0] || '') ? 'error' : null;
+  if (!kind) return false;
+  let fenced = false, fences = 0;
+  for (const line of lines.slice(1)) {
+    if (/^```/.test(line)) { fenced = !fenced; fences++; continue; }
+    if (fenced ? kind === 'error' && fences === 1 && line.length <= 200 : /\(https:\/\/chatgpt\.com\/codex\/[^)\s]*\)/.test(line) || codexLayout(line)) continue;
+    return false;
+  }
+  return !fenced && fences <= 2;
 }
 // A suggestions wrapper whose only parts are its heading, intro and commit.
 function codexSuggestionWrapper(body) {
@@ -303,9 +322,9 @@ function commentDecision(comment, login, kind = 'comment', findings = []) {
     }
     // Activity metadata is not a reviewer verdict. Every other nonempty source
     // body must be understood, rather than silently preserving an old clean.
-    if (codexActivity(body)) return null;
+    if (codexActivity(body) || codexNotice(body)) return null;
     const clean = !codexFinding(body) && codexClean(body);
-    if (clean) return { state: 'clean', ...evidence, commit: clean };
+    if (clean) return { state: 'clean', ...evidence, commit: clean.commit };
   }
   return body.trim() ? { state: 'malformed', ...evidence } : null;
 }
