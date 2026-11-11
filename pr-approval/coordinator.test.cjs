@@ -243,8 +243,10 @@ test('authenticated activity tables preserve standing decisions and cannot estab
     assert.equal((await evaluate(fixture({ comments: [claude('concerns'), codex(), activity] }))).decision, 'concerns');
   }
 });
-test('automatic activity still rejects unknown triggers and substantive appended feedback', async () => {
-  for (const body of [hostedCodex.automaticActivity.replace('| PR opened |', '| Unknown trigger |'), hostedCodex.automaticActivity + '\n[P1] A remaining concern']) {
+test('automatic activity tolerates trigger wording but rejects substantive appended feedback', async () => {
+  const renamed = comment('chatgpt-codex-connector[bot]', hostedCodex.automaticActivity.replace('| PR opened |', '| Opened by contributor |'), 4);
+  assert.equal((await evaluate(fixture({ comments: [claude(), codex(), renamed] }))).decision, 'approve');
+  for (const body of [hostedCodex.automaticActivity + '\nUnexpected substantive feedback', hostedCodex.automaticActivity + '\n[P1] A remaining concern']) {
     const activity = comment('chatgpt-codex-connector[bot]', body, 4);
     assert.equal((await evaluate(fixture({ comments: [claude(), codex(), activity] }))).decision, /\bP[012]\b/.test(body) ? 'concerns' : 'waiting');
   }
@@ -340,7 +342,10 @@ test('recognized hosted clean output accepts only its observed content and boile
   assert.equal((await evaluate(fixture({ comments: [claude(), { ...codex(), body: hostedCodex.cleanVariant }] }))).decision, 'approve');
   const conflicting = { ...codex(), body: hostedCodex.cleanVariant.replace('More of your lovely PRs please.', '[P1] A significant issue remains.') };
   assert.equal((await evaluate(fixture({ comments: [claude(), conflicting] }))).decision, 'concerns');
-  for (const body of [clean.body + '\nPotential data loss remains.', clean.body.replace('</details>', 'Potential data loss remains.\n</details>'), codex().body + '\nPotential data loss remains.']) {
+  // A collapsed "About Codex" help block is boilerplate whatever its wording.
+  assert.equal((await evaluate(fixture({ comments: [claude(), { ...clean, body: clean.body.replace('</details>', 'Codex now also reviews drafts.\n</details>') }] }))).decision, 'approve');
+  assert.equal((await evaluate(fixture({ comments: [claude(), { ...clean, body: clean.body.replace('</details>', '[P1] Data loss remains.\n</details>') }] }))).decision, 'concerns');
+  for (const body of [clean.body + '\nPotential data loss remains.', codex().body + '\nPotential data loss remains.']) {
     assert.equal((await evaluate(fixture({ comments: [claude(), { ...clean, body }] }))).decision, 'waiting');
   }
   for (const body of [hostedCodex.activity + '\nUnexpected substantive feedback', '<!-- codex-pull-request-review-summary -->\n\n## Codex Review Summary\nPotential data loss; fix before merge']) {
@@ -353,12 +358,13 @@ test('receipt-marked hosted clean output signs off, and the receipt hides nothin
   const result = await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', hostedCodex.receiptClean, 2)] }));
   assert.equal(result.decision, 'approve');
   assert.equal(result.signoffs.codex.commit, 'b81d5145c3');
+  const versioned = hostedCodex.receiptClean.replace('codex-review-receipt:v1', 'codex-review-receipt:v2');
+  assert.equal((await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', versioned, 2)] }))).decision, 'approve');
   for (const body of [
     receipt,
     `${receipt}\n${hostedCodex.receiptClean}`,
     `Potential data loss remains.\n${hostedCodex.receiptClean}`,
     hostedCodex.receiptClean.replace(receipt, `${receipt} Potential data loss remains.`),
-    hostedCodex.receiptClean.replace('codex-review-receipt:v1', 'codex-review-receipt:v2'),
     hostedCodex.receiptClean.replace('Swish!', 'Swish!\n\nPotential data loss remains.'),
     hostedCodex.receiptClean.replace('Swish!', '[P1] A significant issue remains.'),
   ]) {
@@ -376,11 +382,12 @@ test('summary with a review-state line is activity, and an edited summary keeps 
   const clean = { ...comment('chatgpt-codex-connector[bot]', hostedCodex.receiptClean, 3), created_at: '2026-10-12T00:05:00Z', updated_at: '2026-10-12T00:05:00Z' };
   assert.equal((await evaluate(fixture({ comments: [claude(), summary, clean] }))).decision, 'approve');
   const line = hostedCodex.stateActivity.split('\n')[1];
+  const versioned = comment('chatgpt-codex-connector[bot]', hostedCodex.stateActivity.replace(line, line.replace('v1', 'v2')), 4);
+  assert.equal((await evaluate(fixture({ comments: [claude(), codex(), versioned] }))).decision, 'approve');
   for (const body of [
     hostedCodex.stateActivity.replace(line, '<!-- codex-review-state:v1 {"code_review": -->'),
     hostedCodex.stateActivity.replace(line, '<!-- codex-review-state:v1 [1] -->'),
     hostedCodex.stateActivity.replace(line, `${line} Potential data loss remains.`),
-    hostedCodex.stateActivity.replace(line, line.replace('v1', 'v2')),
     hostedCodex.stateActivity.replace(line, `${line}\n${line}`),
     hostedCodex.stateActivity.replace('"status":"completed"', '"status":"--> Fix before merge <!--"'),
     hostedCodex.stateActivity.replace('"status":"completed"', '"status":"--!> Fix before merge <!--"'),
@@ -388,29 +395,99 @@ test('summary with a review-state line is activity, and an edited summary keeps 
     assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, /\bP[012]\b/.test(body) ? 'concerns' : 'waiting');
   }
 });
-test('summary collapsed into a details wrapper is activity, and its later edit keeps a clean', async () => {
+test('summary variants are activity, and a later summary edit keeps a clean', async () => {
   const wrapped = hostedCodex.wrappedActivity;
-  assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', wrapped, 4)] }))).decision, 'approve');
-  assert.equal((await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', wrapped, 4)] }))).decision, 'waiting');
+  const heading = '<summary><strong>Codex Review Summary</strong>: ✅ Completed</summary>';
+  const row = wrapped.split('\n').find(line => line.startsWith('| 📝'));
+  const intro = 'This comment shows the latest Codex review activity on this pull request.';
+  const footer = wrapped.slice(wrapped.indexOf('<details> <summary>ℹ️'), wrapped.lastIndexOf('</details>', wrapped.length - 12) + 10);
+  const variants = [
+    wrapped,
+    hostedCodex.activity,
+    wrapped.replace('\n<details>\n', '\n<details open>\n'),
+    wrapped.replace(heading, '<summary><strong>Codex Review Summary</strong>: 🔄 Running</summary>'),
+    wrapped.replace(heading, '<summary><b>Codex Review Summary</b> — ⏳ Queued</summary>'),
+    hostedCodex.activity.replace('## Codex Review Summary', '### 🤖 Codex Review Summary'),
+    hostedCodex.activity.replace('## Codex Review Summary', '**Codex Review Summary**: Completed'),
+    wrapped.replace(intro, ''),
+    wrapped.replace(footer, ''),
+    wrapped.replace(row, `${row}\n| 🛡️ **Security Review** | ⏳ **Queued** | \`5f0c2a9e71\` | Automatic review on push |`),
+    wrapped.replace(row, '| Code review | Done at 04:08 UTC | 5f0c2a9 | Requested in a comment |'),
+    wrapped.replace(/\n/g, '\r\n'),
+  ];
+  for (const body of variants) {
+    const activity = comment('chatgpt-codex-connector[bot]', body, 4);
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), activity] }))).decision, 'approve', body);
+    assert.equal((await evaluate(fixture({ comments: [claude(), activity] }))).decision, 'waiting', body);
+    assert.equal((await evaluate(fixture({ comments: [claude('concerns'), codex(), activity] }))).decision, 'concerns', body);
+  }
   // Hosted order: the clean result posts, then the summary is edited seconds later.
   const summary = { ...comment('chatgpt-codex-connector[bot]', wrapped, 2), created_at: '2026-10-12T00:02:00Z', updated_at: '2026-10-12T00:05:02Z' };
   const clean = { ...comment('chatgpt-codex-connector[bot]', hostedCodex.receiptClean, 3), created_at: '2026-10-12T00:05:00Z', updated_at: '2026-10-12T00:05:00Z' };
   const result = await evaluate(fixture({ comments: [claude(), summary, clean] }));
   assert.equal(result.decision, 'approve');
   assert.equal(result.signoffs.codex.commit, 'b81d5145c3');
-  const heading = '<summary><strong>Codex Review Summary</strong>: ✅ Completed</summary>';
+  // Format tolerance never covers prose the summary's parts do not explain.
   for (const body of [
     wrapped.replace(heading, '<summary><strong>Codex Review Notes</strong>: ✅ Completed</summary>'),
     wrapped.replace(heading, '<summary><strong>Codex Review Summary</strong>: ✅ Completed. Fix before merge.</summary>'),
-    wrapped.replace('\n<details>\n', '\n<details open>\n'),
-    wrapped.replace(/\n<\/details>$/, ''),
+    wrapped.replace(intro, 'A consequential regression remains in the upload path.'),
     `${wrapped}\nPotential data loss remains.`,
     wrapped.replace(/\n<\/details>$/, '\nPotential data loss remains.\n</details>'),
-    wrapped.replace('| Manual request |', '| Manual request |\nPotential data loss remains.'),
+    wrapped.replace(row, `${row}\nPotential data loss remains.`),
+    wrapped.replace(row, ''),
+    wrapped.replace('<!-- codex-pull-request-review-summary -->', ''),
     wrapped.replace('codex-review-state:v1 {', 'codex-review-state:v1 [1] {'),
+    wrapped.replace(intro, `<!-- ${'hidden note'} -->`),
+    wrapped.replace(row, row.replace('Manual request', 'Manual request; data loss remains in the upload path and should block this pull request until the retry logic is fixed and covered by tests that exercise the failure path end to end across both storage backends and every supported client')),
     `${wrapped}\n[P1] A significant issue remains.`,
+    wrapped.replace(row, row.replace('Manual request', 'P2 regression')),
   ]) {
-    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, /\bP[012]\b/.test(body) ? 'concerns' : 'waiting');
+    assert.equal((await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }))).decision, /\bP[012]\b/.test(body) ? 'concerns' : 'waiting', body);
+  }
+});
+test('clean receipt variants sign off for their reviewed commit', async () => {
+  const footer = hostedCodex.receiptClean.slice(hostedCodex.receiptClean.indexOf('<details>'));
+  const securityFooter = hostedCodex.activity.slice(hostedCodex.activity.indexOf('<details>'));
+  for (const [body, commit] of [
+    [hostedCodex.receiptClean, 'b81d5145c3'],
+    [hostedCodex.receiptClean.replace('Swish!', ':tada:'), 'b81d5145c3'],
+    [hostedCodex.receiptClean.replace("Codex Review: Didn't find any major issues. Swish!", "**Codex Review**: Didn’t find any major issues 🎉"), 'b81d5145c3'],
+    [hostedCodex.receiptClean.replace("Codex Review: Didn't find any major issues. Swish!", "### 💡 Codex Review\n\n✅ Didn't find any major issues. Nice work!"), 'b81d5145c3'],
+    [hostedCodex.receiptClean.replace('**Reviewed commit:** `b81d5145c3`', 'Reviewed commit: b81d5145c3'), 'b81d5145c3'],
+    [hostedCodex.receiptClean.replace(footer, securityFooter), 'b81d5145c3'],
+    [hostedCodex.receiptClean.replace(footer, ''), 'b81d5145c3'],
+    [hostedCodex.receiptClean.replace(/\n/g, '\r\n'), 'b81d5145c3'],
+    [hostedCodex.cleanVariant, 'c4234ad686'],
+  ]) {
+    const result = await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', body, 2)] }));
+    assert.equal(result.decision, 'approve', body);
+    assert.equal(result.signoffs.codex.commit, commit, body);
+  }
+});
+test('a Codex body carrying findings never reads as clean', async () => {
+  const clean = hostedCodex.receiptClean;
+  const declaration = "Codex Review: Didn't find any major issues. Swish!";
+  const p3 = '**<sub><sub>![P3 Badge](https://img.shields.io/badge/P3-yellow?style=flat)</sub></sub> Optional naming nit';
+  for (const body of [
+    clean.replace('Swish!', 'Swish! [P1] One issue remains.'),
+    clean.replace(declaration, `${declaration}\n\n**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-orange?style=flat)</sub></sub> Retry loses data`),
+    clean.replace(declaration, `${declaration}\n\n${p3}`),
+    clean.replace(declaration, `${declaration}\n\nHere are some automated review suggestions for this pull request.`),
+    clean.replace(declaration, '### 💡 Codex Review\n\nHere are some automated review suggestions for this pull request.'),
+    clean.replace(declaration, 'Codex Review: Here are some suggestions.'),
+    clean.replace(declaration, `${declaration}\n\nOne regression remains in the retry path.`),
+    clean.replace(declaration, `${declaration}\n${declaration}`),
+    clean.replace('**Reviewed commit:** `b81d5145c3`', '**Reviewed commit:** `b81d5145c3`\n**Reviewed commit:** `c4234ad686`'),
+    clean.replace('**Reviewed commit:** `b81d5145c3`', ''),
+    `<!-- codex-pull-request-review-summary -->\n${clean}`,
+    clean.replace(declaration, `${declaration}\n<!-- hidden -->`),
+  ]) {
+    const result = await evaluate(fixture({ comments: [claude(), comment('chatgpt-codex-connector[bot]', body, 2)] }));
+    assert.notEqual(result.decision, 'approve', body);
+    assert.equal(result.signoffs.codex, null, body);
+    const later = await evaluate(fixture({ comments: [claude(), codex(), comment('chatgpt-codex-connector[bot]', body, 4)] }));
+    assert.equal(later.decision, /\bP[012]\b|Here are some/.test(body) ? 'concerns' : 'waiting', body);
   }
 });
 test('receipt-marked formal P3-only Codex review signs off', async () => {
