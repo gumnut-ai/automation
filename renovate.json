@@ -2,5 +2,22 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "enabledManagers": ["github-actions"],
+  "includePaths": [".github/workflows/**", "actions/**/action.yml"],
+  "minimumReleaseAge": "14 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
+  "automerge": false,
+  "prConcurrentLimit": 1,
+  "packageRules": [
+    {
+      "matchDepTypes": ["uses-with", "github-runner"],
+      "enabled": false
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
   ]
 }
